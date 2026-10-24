@@ -1,0 +1,32 @@
+# env and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# python
+backend/.venv
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.pytest_cache/
+backend/*.egg-info/
+backend/.coverage
+backend/htmlcov/
+
+# node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/*.tsbuildinfo
+
+# os / ide
+.DS_Store
+.idea/
+.vscode/
+
+# docker
+pgdata/

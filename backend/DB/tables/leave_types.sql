@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS leave_types (
+    id UUID PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    annual_allocation_days INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

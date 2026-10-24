@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-skyreon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skyreon}
+      POSTGRES_DB: ${POSTGRES_DB:-skyreon}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skyreon} -d ${POSTGRES_DB:-skyreon}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${SUPABASE_DATABASE_URL:-postgresql+asyncpg://skyreon:skyreon@postgres:5432/skyreon}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./DB:/app/DB
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./frontend:/app
+      - web_node_modules:/app/node_modules
+      # Keep Next build cache inside Docker so host `npm run build` cannot break dev CSS paths.
+      - web_next_cache:/app/.next
+    command: npm run dev
+
+volumes:
+  pgdata:
+  web_node_modules:
+  web_next_cache:

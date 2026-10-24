@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #081020;
+  background: #f4f8fc;
+}
+
+body {
+  min-height: 100vh;
+}
+
+input[type="date"],
+input[type="number"] {
+  color-scheme: light;
+}

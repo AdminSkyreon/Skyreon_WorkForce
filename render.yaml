@@ -1,0 +1,29 @@
+# Render Blueprint — API only (Postgres on Supabase).
+# Dashboard: connect repo → New Blueprint → select this file, or create Web Service manually.
+services:
+  - type: web
+    name: skyreon-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Skyreon Admin
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
