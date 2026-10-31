@@ -1,3 +1,4 @@
+import ssl
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.engine.url import make_url
@@ -26,7 +27,10 @@ def create_db_engine(url: str, **extra: object) -> AsyncEngine:
     is_pooler = parsed.port == 6543 or "pooler.supabase.com" in host
     connect_args: dict[str, object] = {}
     if sslmode in {"require", "verify-ca", "verify-full"} or is_supabase:
-        connect_args["ssl"] = True
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        connect_args["ssl"] = ctx
     if is_pooler:
         connect_args["statement_cache_size"] = 0
     return create_async_engine(
