@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeftRight, Bell, LogOut, Menu, X, type LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { refreshAccess } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { isStaff } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ChangePasswordModal } from "./change-password-modal";
+import { setNavigationLoading } from "./global-loading-indicator";
 import { MiniTimer } from "./mini-timer";
 import { SkyreonLogo } from "./skyreon-logo";
 
@@ -29,9 +30,17 @@ export function AppShell({
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+
+  // When pathname changes (navigation completed), clear the pending state
+  useEffect(() => {
+    setPendingHref(null);
+    setNavigationLoading(false);
+  }, [pathname]);
 
   async function switchPortal(href: string) {
     setSwitching(true);
+    setNavigationLoading(true);
     try {
       await refreshAccess();
       router.push(href);
@@ -39,6 +48,7 @@ export function AppShell({
       setSwitching(false);
     }
   }
+
   const notificationsHref = isStaff(user?.role) ? "/admin/notifications" : "/employee/notifications";
   const current = useMemo(() => {
     const flat = nav.flatMap((section) => section.items);
@@ -49,6 +59,17 @@ export function AppShell({
 
   function isActive(href: string) {
     return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  function handleNavClick(e: React.MouseEvent, href: string) {
+    if (isActive(href)) {
+      e.preventDefault();
+      return;
+    }
+    // Instant 0ms visual feedback: mark this item as pending and start progress bar
+    setPendingHref(href);
+    setNavigationLoading(true);
+    setOpen(false);
   }
 
   const links = (
@@ -62,22 +83,65 @@ export function AppShell({
             {section.items.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href);
+              const isPending = pendingHref === item.href;
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   prefetch
                   scroll={false}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => handleNavClick(e, item.href)}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition",
+                    "relative flex items-center justify-between rounded-lg px-3 py-1.5 text-[13px] font-medium transition",
                     active
                       ? "bg-forest text-white shadow-sm"
-                      : "text-white/65 hover:bg-white/10 hover:text-white",
+                      : isPending
+                        ? "bg-white/15 text-white ring-1 ring-white/20"
+                        : "text-white/65 hover:bg-white/10 hover:text-white",
                   )}
                 >
-                  {Icon ? <Icon className={cn("h-4 w-4 shrink-0", active ? "text-white" : "text-white/45")} /> : null}
-                  <span className="truncate">{item.label}</span>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    {Icon ? (
+                      <Icon
+                        className={cn(
+                          "h-4 w-4 shrink-0 transition",
+                          active
+                            ? "text-white"
+                            : isPending
+                              ? "text-white animate-pulse"
+                              : "text-white/45",
+                        )}
+                      />
+                    ) : null}
+                    <span className="truncate">{item.label}</span>
+                  </div>
+
+                  {/* Subtle, elegant inline spinner shown right on the clicked item */}
+                  {isPending && (
+                    <div className="ml-2 flex shrink-0 items-center">
+                      <svg
+                        className="h-3.5 w-3.5 animate-spin text-white/80"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                        />
+                      </svg>
+                    </div>
+                  )}
                 </Link>
               );
             })}
