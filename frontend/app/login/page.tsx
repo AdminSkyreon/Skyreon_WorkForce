@@ -18,6 +18,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { login, user } = useAuth();
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
 
@@ -51,27 +52,55 @@ export default function LoginPage() {
             className="mt-8 space-y-4"
             onSubmit={form.handleSubmit(async (values) => {
               setError("");
+              setIsSubmitting(true);
               try {
                 const user = await login(values.email, values.password);
                 router.push(user.role === "employee" ? "/employee/dashboard" : "/admin/dashboard");
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Unable to sign in");
+                setIsSubmitting(false);
               }
             })}
           >
             <div>
               <Label>Email</Label>
-              <Input type="email" {...form.register("email")} />
+              <Input type="email" disabled={isSubmitting} {...form.register("email")} />
               <FieldError message={form.formState.errors.email?.message} />
             </div>
             <div>
               <Label>Password</Label>
-              <Input type="password" {...form.register("password")} />
+              <Input type="password" disabled={isSubmitting} {...form.register("password")} />
               <FieldError message={form.formState.errors.password?.message} />
             </div>
             {error && <p className="text-sm text-red-700">{error}</p>}
-            <Button type="submit" className="w-full">
-              Continue
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <svg
+                    className="h-4 w-4 animate-spin text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                    />
+                  </svg>
+                  <span>Signing in...</span>
+                </>
+              ) : (
+                "Continue"
+              )}
             </Button>
           </form>
           <button className="mt-4 text-sm text-forest underline" onClick={() => setForgotOpen(true)}>
