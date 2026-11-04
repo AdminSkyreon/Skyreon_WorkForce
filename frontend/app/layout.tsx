@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import { GlobalLoadingIndicator } from "@/components/global-loading-indicator";
+import { ToastContainer } from "@/components/toast";
 import { Providers } from "@/lib/providers";
 import "./globals.css";
 
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${manrope.variable} ${fraunces.variable} font-sans antialiased`}>
         <Providers>
           <GlobalLoadingIndicator />
+          <ToastContainer />
           {children}
         </Providers>
       </body>

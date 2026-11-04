@@ -12,6 +12,7 @@ import { ChangePasswordModal } from "./change-password-modal";
 import { setNavigationLoading } from "./global-loading-indicator";
 import { MiniTimer } from "./mini-timer";
 import { SkyreonLogo } from "./skyreon-logo";
+import { Button, Modal } from "./ui";
 
 export type NavLink = { href: string; label: string; icon?: LucideIcon };
 export type NavSection = { title: string; items: NavLink[] };
@@ -32,6 +33,10 @@ export function AppShell({
   const [switching, setSwitching] = useState(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
+  // Logout Confirmation & Loading State
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   // When pathname changes (navigation completed), clear the pending state
   useEffect(() => {
     setPendingHref(null);
@@ -46,6 +51,19 @@ export function AppShell({
       router.push(href);
     } finally {
       setSwitching(false);
+    }
+  }
+
+  async function handleConfirmLogout() {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch {
+      // Force redirect to login even if network call drops
+      window.location.replace("/login");
+    } finally {
+      setIsLoggingOut(false);
+      setLogoutModalOpen(false);
     }
   }
 
@@ -225,13 +243,67 @@ export function AppShell({
               <Bell className="h-4 w-4" />
             </Link>
             <ChangePasswordModal />
-            <button onClick={() => void logout()} className="rounded-full bg-white p-2 shadow-card">
-              <LogOut className="h-4 w-4" />
-            </button>
+            
+            {/* Replaced Icon with "Logout" Text Button */}
+            <Button
+              variant="outline"
+              onClick={() => setLogoutModalOpen(true)}
+              className="px-3 py-1.5 text-xs text-ink/75 hover:text-red-700 hover:border-red-200"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Logout</span>
+            </Button>
           </div>
         </header>
         <main className="p-4 sm:p-6">{children}</main>
       </div>
+
+      {/* Confirmation Modal Before Logging Out */}
+      <Modal
+        open={logoutModalOpen}
+        title="Confirm Logout"
+        onClose={() => !isLoggingOut && setLogoutModalOpen(false)}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-ink/70 leading-relaxed">
+            Are you sure you want to log out of your Skyreon Workforce account?
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              type="button"
+              disabled={isLoggingOut}
+              onClick={() => setLogoutModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              type="button"
+              disabled={isLoggingOut}
+              onClick={() => void handleConfirmLogout()}
+            >
+              {isLoggingOut ? (
+                <>
+                  <svg
+                    className="h-4 w-4 animate-spin text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  <span>Logging out...</span>
+                </>
+              ) : (
+                "Log out"
+              )}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {user?.must_change_password && <ChangePasswordModal forced />}
     </div>
   );

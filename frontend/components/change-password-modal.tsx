@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/toast";
 import { Button, FieldError, Input, Label, Modal } from "./ui";
 
 const schema = z.object({
@@ -47,6 +48,7 @@ export function ChangePasswordModal({ forced = false }: { forced?: boolean }) {
             try {
               await api("/auth/change-password", { method: "POST", body: JSON.stringify(values) });
               await refreshUser();
+              toast.success("Password Updated", "Your password has been changed successfully.");
               setOpen(false);
               form.reset();
             } catch (err) {

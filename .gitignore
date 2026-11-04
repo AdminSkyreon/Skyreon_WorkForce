@@ -30,3 +30,7 @@ frontend/*.tsbuildinfo
 
 # docker
 pgdata/
+
+.vercel
+backend/build/
+

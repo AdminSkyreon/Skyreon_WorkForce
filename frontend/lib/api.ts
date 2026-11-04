@@ -1,5 +1,6 @@
 import { syncPortalCookies } from "./portal-cookies";
 import type { User } from "./types";
+import { toast } from "@/components/toast";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -25,19 +26,54 @@ export class ApiError extends Error {
 
 type ApiOptions = RequestInit & { skipAuth?: boolean };
 
+function humanizeErrorMessage(status: number, detail: string): string {
+  if (status === 401) {
+    if (detail.toLowerCase().includes("invalid email or password")) {
+      return "Incorrect email or password. Please check your credentials and try again.";
+    }
+    return "Your session has expired. Please sign in again.";
+  }
+  if (status === 403) {
+    return "You do not have permission to perform this action.";
+  }
+  if (status === 404) {
+    return "The requested information could not be found.";
+  }
+  if (status === 429) {
+    return "Too many requests. Please wait a minute and try again.";
+  }
+  if (status >= 500) {
+    return "Our servers encountered a temporary issue. Please try again in a few moments.";
+  }
+  if (detail && typeof detail === "string" && !detail.startsWith("{")) {
+    return detail;
+  }
+  return "An unexpected error occurred. Please try again.";
+}
+
 async function parseError(res: Response): Promise<ApiError> {
+  let detail = "";
   try {
     const body = await res.json();
-    const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-    return new ApiError(res.status, detail);
+    if (Array.isArray(body.detail)) {
+      // Pydantic validation errors
+      detail = body.detail.map((err: { msg?: string; loc?: string[] }) => err.msg || "Invalid field").join(", ");
+    } else if (typeof body.detail === "string") {
+      detail = body.detail;
+    } else {
+      detail = JSON.stringify(body.detail);
+    }
   } catch {
-    return new ApiError(res.status, res.statusText);
+    detail = res.statusText;
   }
+
+  const humanMessage = humanizeErrorMessage(res.status, detail);
+  return new ApiError(res.status, humanMessage);
 }
 
 const AUTH_TIMEOUT_MS = 8_000;
 
-async function refreshAccess(): Promise<User | null> {
+export async function refreshAccess(): Promise<User | null> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
   let res: Response;
@@ -71,16 +107,34 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   if (accessToken && !options.skipAuth) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
-  const res = await fetch(`${API_URL}/api/v1${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/v1${path}`, {
+      ...options,
+      headers,
+      credentials: "include",
+    });
+  } catch (_err) {
+    const errorMsg = "Unable to connect to the server. Please check your internet connection.";
+    toast.error("Connection Error", errorMsg);
+    throw new ApiError(0, errorMsg);
+  }
+
   if (res.status === 401 && !path.startsWith("/auth/")) {
     const user = await refreshAccess();
     if (user) return api<T>(path, options);
   }
-  if (!res.ok) throw await parseError(res);
+
+  if (!res.ok) {
+    const parsed = await parseError(res);
+    // Don't show toast for silent background refresh checks
+    if (!path.includes("/auth/refresh")) {
+      toast.error("Action Failed", parsed.detail);
+    }
+    throw parsed;
+  }
+
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -109,5 +163,3 @@ export async function downloadPdf(path: string, filename: string) {
   }
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
-
-export { refreshAccess };
