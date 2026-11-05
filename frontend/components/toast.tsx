@@ -14,7 +14,21 @@ export interface ToastMessage {
 
 let toastListeners: Array<(toast: ToastMessage) => void> = [];
 
+// Deduplication cache: stores the last timestamp an identical message was displayed
+const recentToastCache = new Map<string, number>();
+const DEDUPE_WINDOW_MS = 3_000;
+
 export function showToast(type: ToastType, title: string, description?: string) {
+  const key = `${type}:${title}:${description || ""}`;
+  const now = Date.now();
+  const lastShown = recentToastCache.get(key) || 0;
+
+  // Suppress duplicate toasts fired within the deduplication window
+  if (now - lastShown < DEDUPE_WINDOW_MS) {
+    return;
+  }
+  recentToastCache.set(key, now);
+
   const id = Math.random().toString(36).substring(2, 9);
   const toast: ToastMessage = { id, type, title, description };
   toastListeners.forEach((fn) => fn(toast));
@@ -59,29 +73,24 @@ export function ToastContainer() {
               isSuccess
                 ? "bg-white/95 border-emerald-500/20 text-ink shadow-emerald-500/10"
                 : isError
-                ? "bg-white/95 border-red-500/20 text-ink shadow-red-500/10"
-                : "bg-white/95 border-forest/20 text-ink shadow-forest/10"
+                ? "bg-white/95 border-rose-500/20 text-ink shadow-rose-500/10"
+                : "bg-white/95 border-sky-500/20 text-ink shadow-sky-500/10"
             }`}
           >
-            <div className="shrink-0 mt-0.5">
-              {isSuccess && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
-              {isError && <AlertCircle className="h-5 w-5 text-red-600" />}
-              {!isSuccess && !isError && <Info className="h-5 w-5 text-forest" />}
+            <div className="mt-0.5 shrink-0">
+              {isSuccess && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
+              {isError && <AlertCircle className="w-5 h-5 text-rose-600" />}
+              {!isSuccess && !isError && <Info className="w-5 h-5 text-sky-600" />}
             </div>
-
             <div className="flex-1 min-w-0">
               <h4 className="text-sm font-semibold tracking-tight text-ink">{t.title}</h4>
-              {t.description && (
-                <p className="mt-0.5 text-xs text-ink/65 leading-relaxed break-words">{t.description}</p>
-              )}
+              {t.description && <p className="text-xs text-muted mt-0.5 leading-relaxed">{t.description}</p>}
             </div>
-
             <button
-              type="button"
               onClick={() => setToasts((prev) => prev.filter((item) => item.id !== t.id))}
-              className="shrink-0 text-ink/40 hover:text-ink p-1 rounded-lg transition"
+              className="text-muted/60 hover:text-ink transition-colors p-0.5 -mr-1"
             >
-              <X className="h-4 w-4" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         );

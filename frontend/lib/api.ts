@@ -71,32 +71,57 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, humanMessage);
 }
 
-const AUTH_TIMEOUT_MS = 8_000;
+const AUTH_TIMEOUT_MS = 45_000;
 
-export async function refreshAccess(): Promise<User | null> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-      signal: controller.signal,
-    });
-  } catch {
-    accessToken = null;
-    return null;
-  } finally {
-    window.clearTimeout(timeout);
+let refreshPromise : Promise<User | null> | null = null;
+
+export async function refreshAccess() : Promise<User | null> {
+
+  if (refreshPromise){
+    return refreshPromise
   }
-  if (!res.ok) {
-    accessToken = null;
-    return null;
-  }
-  const body = (await res.json()) as { access_token: string; user: User };
-  accessToken = body.access_token;
-  syncPortalCookies(body.user);
-  return body.user;
+
+  refreshPromise = (async () => {
+    const controller = new AbortController();
+
+    const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS)
+
+    let res : Response
+    try{
+      res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+        method: "POST",
+        credentials : "include",
+        signal : controller.signal,
+      })
+    }
+      catch (_err){
+        accessToken = null
+        return null
+      }
+      finally {
+        window.clearTimeout(timeout)
+      }
+
+      if (!res.ok) {
+        accessToken = null
+        return null
+    }
+
+    try{
+      const body = (await res.json() as {access_token : string; user: User})
+      accessToken = body.access_token
+      syncPortalCookies(body.user)
+      return body.user
+    }
+    catch{
+      accessToken = null
+      return null
+    }
+  })().finally(() => {
+    refreshPromise = null
+  })
+
+  return refreshPromise;
 }
 
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
