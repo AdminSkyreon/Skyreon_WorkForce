@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, refreshAccess, setAccessToken } from "./api";
-import { clearPortalCookies, syncPortalCookies } from "./portal-cookies";
+import { clearPortalCookies, hasSessionCookie, syncPortalCookies } from "./portal-cookies";
 import type { User } from "./types";
 
 type AuthContextValue = {
@@ -23,9 +23,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
+
+    if (!hasSessionCookie()) {
+      setLoading(false);
+      return;
+    }
+
     const failSafe = window.setTimeout(() => {
       if (active) setLoading(false);
-    }, 10_000);
+    }, 45_000);
 
     void refreshAccess()
       .then(async (refreshed) => {

@@ -24,7 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-type ApiOptions = RequestInit & { skipAuth?: boolean };
+type ApiOptions = RequestInit & { skipAuth?: boolean; _retryCount? : number };
 
 function humanizeErrorMessage(status: number, detail: string): string {
   if (status === 401) {
@@ -102,6 +102,19 @@ export async function refreshAccess() : Promise<User | null> {
         window.clearTimeout(timeout)
       }
 
+      if (res.status === 429){
+        await new Promise((r) => setTimeout(r, 3000))
+        try{
+          res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+            method : "POST",
+            credentials : "include"
+          })
+        }catch{
+            accessToken = null
+            return null
+          }
+        }
+
       if (!res.ok) {
         accessToken = null
         return null
@@ -125,6 +138,11 @@ export async function refreshAccess() : Promise<User | null> {
 }
 
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+
+  if (!options.skipAuth && !accessToken && refreshPromise){
+    await refreshPromise
+  }
+
   const headers = new Headers(options.headers);
   if (!(options.body instanceof FormData) && !headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
@@ -144,6 +162,11 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     const errorMsg = "Unable to connect to the server. Please check your internet connection.";
     toast.error("Connection Error", errorMsg);
     throw new ApiError(0, errorMsg);
+  }
+
+  if (res.status === 429 && (options._retryCount ?? 0) < 1) {
+    await new Promise((r) => setTimeout(r, 2500));
+    return api<T>(path, { ...options, _retryCount: (options._retryCount ?? 0) + 1 });
   }
 
   if (res.status === 401 && !path.startsWith("/auth/")) {

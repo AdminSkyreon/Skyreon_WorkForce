@@ -6,17 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
-from app.core.database import SessionLocal
 from app.jobs.scheduler import start_scheduler, stop_scheduler
-from app.services.seed import run_seed
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    async with SessionLocal() as db:
-        await run_seed(db)
     start_scheduler()
     yield
     stop_scheduler()

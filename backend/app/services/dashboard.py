@@ -1,22 +1,20 @@
+import asyncio
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-
+from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-
 from app.models.employee import Employee, EmployeeStatus
 from app.models.leave import LeaveRequest, LeaveStatus
-from app.models.project import Project, ProjectMember, ProjectStatus
+from app.models.project import Project, ProjectStatus, ProjectMember
 from app.models.reimbursement import Reimbursement, ReimbursementStatus
-from app.models.task import Task, TaskStatus
 from app.models.time_entry import TaskTimeEntry
 from app.models.timesheet import TimesheetStatus, TimesheetWeek
 from app.schemas.dashboard import AdminDashboard, EmployeeDashboard
 from app.services.billing import missing_projects
 from app.services.dates import monday_of
+from app.models.task import Task, TaskStatus
 from app.services.leave import balances_for
-from app.services.projects import compute_financials
 from app.services.timer import get_open_entry
 
 
@@ -29,53 +27,73 @@ def _week_bounds() -> tuple[datetime, datetime]:
 
 async def admin_dashboard(db: AsyncSession) -> AdminDashboard:
     start_dt, end_dt = _week_bounds()
-    active_employees = (
-        await db.execute(
-            select(func.count()).select_from(Employee).where(Employee.status == EmployeeStatus.ACTIVE)
-        )
-    ).scalar_one()
-    active_projects = (
-        await db.execute(
-            select(func.count()).select_from(Project).where(Project.status == ProjectStatus.ACTIVE)
-        )
-    ).scalar_one()
-    pending_timesheets = (
-        await db.execute(
-            select(func.count())
-            .select_from(TimesheetWeek)
-            .where(TimesheetWeek.status == TimesheetStatus.SUBMITTED)
-        )
-    ).scalar_one()
-    pending_leaves = (
-        await db.execute(
-            select(func.count()).select_from(LeaveRequest).where(LeaveRequest.status == LeaveStatus.PENDING)
-        )
-    ).scalar_one()
-    pending_claims = (
-        await db.execute(
-            select(func.count())
-            .select_from(Reimbursement)
-            .where(Reimbursement.status == ReimbursementStatus.SUBMITTED)
-        )
-    ).scalar_one()
     today = date.today()
     prev = date(today.year, today.month, 1) - timedelta(days=1)
-    missing = await missing_projects(db, prev.year, prev.month)
 
-    hour_rows = (
-        await db.execute(
-            select(
-                TaskTimeEntry.employee_id,
-                func.coalesce(func.sum(TaskTimeEntry.duration_seconds), 0),
-            )
-            .where(
-                TaskTimeEntry.end_time.is_not(None),
-                TaskTimeEntry.start_time >= start_dt,
-                TaskTimeEntry.start_time < end_dt,
-            )
-            .group_by(TaskTimeEntry.employee_id)
+    emp_count_task = db.execute(
+        select(func.count()).select_from(Employee).where(Employee.status == EmployeeStatus.ACTIVE)
+    )
+    proj_count_task = db.execute(
+        select(func.count()).select_from(Project).where(Project.status == ProjectStatus.ACTIVE)
+    )
+    sheet_count_task = db.execute(
+        select(func.count())
+        .select_from(TimesheetWeek)
+        .where(TimesheetWeek.status == TimesheetStatus.SUBMITTED)
+    )
+    leave_count_task = db.execute(
+        select(func.count()).select_from(LeaveRequest).where(LeaveRequest.status == LeaveStatus.PENDING)
+    )
+    claim_count_task = db.execute(
+        select(func.count())
+        .select_from(Reimbursement)
+        .where(Reimbursement.status == ReimbursementStatus.SUBMITTED)
+    )
+    missing_task = missing_projects(db, prev.year, prev.month)
+
+    projects_task = db.execute(
+        select(Project)
+        .where(Project.status.in_([ProjectStatus.ACTIVE, ProjectStatus.PLANNED]))
+    )
+    hour_rows_task = db.execute(
+        select(
+            TaskTimeEntry.employee_id,
+            func.coalesce(func.sum(TaskTimeEntry.duration_seconds), 0),
         )
-    ).all()
+        .where(
+            TaskTimeEntry.end_time.is_not(None),
+            TaskTimeEntry.start_time >= start_dt,
+            TaskTimeEntry.start_time < end_dt,
+        )
+        .group_by(TaskTimeEntry.employee_id)
+    )
+    (
+        emp_res,
+        proj_res,
+        sheet_res,
+        leave_res,
+        claim_res,
+        missing,
+        projects_res,
+        hour_rows_res,
+    ) = await asyncio.gather(
+        emp_count_task,
+        proj_count_task,
+        sheet_count_task,
+        leave_count_task,
+        claim_count_task,
+        missing_task,
+        projects_task,
+        hour_rows_task,
+    )
+    active_employees = emp_res.scalar_one()
+    active_projects = proj_res.scalar_one()
+    pending_timesheets = sheet_res.scalar_one()
+    pending_leaves = leave_res.scalar_one()
+    pending_claims = claim_res.scalar_one()
+    projects = list(projects_res.scalars().all())
+    hour_rows = hour_rows_res.all()
+
     hours = Decimal("0.00")
     cost = Decimal("0.00")
     if hour_rows:
@@ -89,29 +107,57 @@ async def admin_dashboard(db: AsyncSession) -> AdminDashboard:
             hours += h
             cost += h * Decimal(rates.get(emp_id, 0))
 
-    projects = list(
-        (
-            await db.execute(
-                select(Project)
-                .options(selectinload(Project.manager))
-                .where(Project.status.in_([ProjectStatus.ACTIVE, ProjectStatus.PLANNED]))
-            )
-        ).scalars().all()
-    )
-    revenue = sum((p.revenue_amount for p in projects), Decimal("0.00"))
     financials = []
-    for project in projects:
-        fin = await compute_financials(db, project.id)
-        financials.append(
-            {
-                "id": str(project.id),
-                "name": project.name,
-                "hours": float(fin.total_hours),
-                "cost": float(fin.cost),
-                "revenue": float(fin.revenue),
-                "profit": float(fin.profit),
-            }
+    revenue = sum((p.revenue_amount for p in projects), Decimal("0.00"))
+    if projects:
+        project_ids = [p.id for p in projects]
+
+        fin_stmt = (
+            select(
+                Task.project_id,
+                TaskTimeEntry.employee_id,
+                func.coalesce(func.sum(TaskTimeEntry.duration_seconds), 0),
+            )
+            .join(Task, Task.id == TaskTimeEntry.task_id)
+            .where(
+                Task.project_id.in_(project_ids),
+                TaskTimeEntry.end_time.is_not(None),
+            )
+            .group_by(Task.project_id, TaskTimeEntry.employee_id)
         )
+        fin_rows = (await db.execute(fin_stmt)).all()
+        # Load rates for employees involved in these projects
+        fin_emp_ids = {row[1] for row in fin_rows}
+        if fin_emp_ids:
+            rates_map = {
+                emp.id: emp.hourly_cost_rate
+                for emp in (await db.execute(select(Employee).where(Employee.id.in_(fin_emp_ids)))).scalars()
+            }
+        else:
+            rates_map = {}
+        
+        project_data: dict[UUID, dict[str, Decimal]] = {
+            p.id: {"hours": Decimal("0.00"), "cost": Decimal("0.00")} for p in projects
+        }
+        for proj_id, emp_id, seconds in fin_rows:
+            h = Decimal(int(seconds)) / Decimal(3600)
+            project_data[proj_id]["hours"] += h
+            project_data[proj_id]["cost"] += h * Decimal(rates_map.get(emp_id, Decimal("0.00")))
+        for project in projects:
+            p_hours = project_data[project.id]["hours"].quantize(Decimal("0.01"))
+            p_cost = project_data[project.id]["cost"].quantize(Decimal("0.01"))
+            p_revenue = Decimal(project.revenue_amount)
+            p_profit = (p_revenue - p_cost).quantize(Decimal("0.01"))
+            financials.append(
+                {
+                    "id": str(project.id),
+                    "name": project.name,
+                    "hours": float(p_hours),
+                    "cost": float(p_cost),
+                    "revenue": float(p_revenue),
+                    "profit": float(p_profit),
+                }
+            )
     return AdminDashboard(
         active_employees=active_employees,
         active_projects=active_projects,
@@ -124,6 +170,7 @@ async def admin_dashboard(db: AsyncSession) -> AdminDashboard:
         pending_claims=pending_claims,
         missing_billing=len(missing),
     )
+
 
 
 async def employee_dashboard(db: AsyncSession, employee: Employee) -> EmployeeDashboard:

@@ -6,6 +6,8 @@ import { Button, Input, Label, Select } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Location, NamedOption } from "@/lib/types";
 
+const FIFTEEN_MINUTES = 15 * 60 * 1000;
+
 export function DepartmentSelect({
   value,
   onChange,
@@ -16,7 +18,11 @@ export function DepartmentSelect({
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const items = useQuery({ queryKey: ["departments"], queryFn: () => api<NamedOption[]>("/departments") });
+  const items = useQuery({
+    queryKey: ["departments"],
+    queryFn: () => api<NamedOption[]>("/departments"),
+    staleTime: FIFTEEN_MINUTES,
+  });
   const create = useMutation({
     mutationFn: () => api<NamedOption>("/departments", { method: "POST", body: JSON.stringify({ name }) }),
     onSuccess: (row) => {
@@ -65,7 +71,11 @@ export function DesignationSelect({
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const items = useQuery({ queryKey: ["designations"], queryFn: () => api<NamedOption[]>("/designations") });
+  const items = useQuery({
+    queryKey: ["designations"],
+    queryFn: () => api<NamedOption[]>("/designations"),
+    staleTime: FIFTEEN_MINUTES,
+  });
   const create = useMutation({
     mutationFn: () => api<NamedOption>("/designations", { method: "POST", body: JSON.stringify({ name }) }),
     onSuccess: (row) => {
@@ -111,44 +121,22 @@ export function LocationSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const qc = useQueryClient();
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const items = useQuery({ queryKey: ["locations"], queryFn: () => api<Location[]>("/locations") });
-  const create = useMutation({
-    mutationFn: () => api<Location>("/admin/locations", { method: "POST", body: JSON.stringify({ name }) }),
-    onSuccess: (row) => {
-      void qc.invalidateQueries({ queryKey: ["locations"] });
-      onChange(row.id);
-      setAdding(false);
-      setName("");
-    },
+  const items = useQuery({
+    queryKey: ["locations"],
+    queryFn: () => api<Location[]>("/admin/locations"),
+    staleTime: FIFTEEN_MINUTES,
   });
   return (
     <div>
-      <Label>Location</Label>
-      {adding ? (
-        <div className="flex gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New location" />
-          <Button type="button" onClick={() => create.mutate()} disabled={!name.trim()}>
-            Save
-          </Button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Select value={value} onChange={(e) => onChange(e.target.value)}>
-            <option value="">None</option>
-            {items.data?.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name}
-              </option>
-            ))}
-          </Select>
-          <Button type="button" variant="outline" onClick={() => setAdding(true)}>
-            Add
-          </Button>
-        </div>
-      )}
+      <Label>Office location</Label>
+      <Select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Select</option>
+        {items.data?.map((loc) => (
+          <option key={loc.id} value={loc.id}>
+            {loc.name} ({loc.city})
+          </option>
+        ))}
+      </Select>
     </div>
   );
 }

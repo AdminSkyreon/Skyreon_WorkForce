@@ -87,6 +87,8 @@ export default function EmployeesPage() {
   const managers = useQuery({
     queryKey: ["employees", "active-options"],
     queryFn: () => api<Page<Employee>>("/admin/employees?status=active&page_size=100"),
+    enabled: open, // <-- ONLY fetch when the "Add Employee" modal is opened!
+    staleTime: 5 * 60 * 1000,
   });
   const counts = useQuery({
     queryKey: ["employees", "status-counts"],
