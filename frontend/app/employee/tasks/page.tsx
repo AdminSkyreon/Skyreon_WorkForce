@@ -119,15 +119,15 @@ export default function MyTasksPage() {
       <Modal open={!!stopId} title="Stop timer" onClose={() => setStopId(null)}>
         <Textarea placeholder="Optional note" value={note} onChange={(e) => setNote(e.target.value)} />
         <p className="mt-2 text-xs text-ink/50">Stopped time is added to this week’s timesheet.</p>
-        <Button className="mt-4" onClick={() => stopId && act.mutate({ id: stopId, action: "stop" })}>
-          Save hours
+        <Button className="mt-4" loading={act.isPending} onClick={() => stopId && act.mutate({ id: stopId, action: "stop" })}>
+          {act.isPending ? "Saving..." : "Save hours"}
         </Button>
       </Modal>
 
       <Modal open={!!prompt} title="Another timer is running" onClose={() => setPrompt(null)}>
         <p className="text-sm text-ink/70">Pause the current timer and start this task?</p>
-        <Button className="mt-4" onClick={() => prompt && act.mutate({ id: prompt, action: "start", pauseCurrent: true })}>
-          Pause current and start
+        <Button className="mt-4" loading={act.isPending} onClick={() => prompt && act.mutate({ id: prompt, action: "start", pauseCurrent: true })}>
+          {act.isPending ? "Starting..." : "Pause current and start"}
         </Button>
       </Modal>
     </div>

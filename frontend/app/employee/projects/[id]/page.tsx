@@ -116,8 +116,12 @@ export default function EmployeeProjectDetailPage() {
           </div>
           <p className="text-xs text-ink/50">This task is assigned to you.</p>
           {create.error ? <p className="text-sm text-red-700">{create.error.message}</p> : null}
-          <Button disabled={!title.trim() || create.isPending} onClick={() => create.mutate()}>
-            Create task
+          <Button
+            loading={create.isPending}
+            disabled={!title.trim()}
+            onClick={() => create.mutate()}
+          >
+            {create.isPending ? "Creating..." : "Create task"}
           </Button>
         </div>
       </Modal>

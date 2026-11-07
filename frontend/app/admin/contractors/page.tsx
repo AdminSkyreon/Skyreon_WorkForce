@@ -70,7 +70,7 @@ export default function ContractorsPage() {
                       Statement
                     </Button>
                   ) : (
-                    <Button onClick={() => pay.mutate(line.employee_id)}>Mark paid</Button>
+                    <Button loading={pay.isPending && pay.variables === line.employee_id} onClick={() => pay.mutate(line.employee_id)}>{pay.isPending && pay.variables === line.employee_id ? "Marking paid..." : "Mark paid"}</Button>
                   )}
                 </td>
               </tr>

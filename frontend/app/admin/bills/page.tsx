@@ -123,7 +123,7 @@ export default function BillsPage() {
                 setOpen(true);
               }}
             />
-            {bill.status !== "paid" && <Button onClick={() => pay.mutate(bill.id)}>Mark paid</Button>}
+            {bill.status !== "paid" && <Button loading={pay.isPending && pay.variables === bill.id} onClick={() => pay.mutate(bill.id)}>{pay.isPending && pay.variables === bill.id ? "Marking paid..." : "Mark paid"}</Button>}
           </div>
         </Card>
       ))}
@@ -163,8 +163,13 @@ export default function BillsPage() {
           {(editing ? update.error : create.error) ? (
             <p className="text-sm text-red-700">{(editing ? update.error : create.error)?.message}</p>
           ) : null}
-          <Button onClick={() => (editing ? update.mutate() : create.mutate())}>
-            {editing ? "Save changes" : "Save bill"}
+          <Button
+            loading={editing ? update.isPending : create.isPending}
+            onClick={() => (editing ? update.mutate() : create.mutate())}
+          >
+            {editing
+              ? update.isPending ? "Saving..." : "Save changes"
+              : create.isPending ? "Saving..." : "Save bill"}
           </Button>
         </div>
       </Modal>

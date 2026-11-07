@@ -57,8 +57,13 @@ export default function AttendancePage() {
             <option value="absent">Absent</option>
           </Select>
         </div>
-        <Button className="self-end" onClick={() => mark.mutate()} disabled={!form.employee_id}>
-          Save mark
+        <Button
+          className="self-end"
+          loading={mark.isPending}
+          onClick={() => mark.mutate()}
+          disabled={!form.employee_id}
+        >
+          {mark.isPending ? "Saving..." : "Save mark"}
         </Button>
       </Card>
       <div className="grid gap-3 sm:grid-cols-2">

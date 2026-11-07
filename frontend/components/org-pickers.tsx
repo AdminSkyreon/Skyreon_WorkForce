@@ -38,8 +38,8 @@ export function DepartmentSelect({
       {adding ? (
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New department" />
-          <Button type="button" onClick={() => create.mutate()} disabled={!name.trim()}>
-            Save
+          <Button type="button" loading={create.isPending} onClick={() => create.mutate()} disabled={!name.trim()}>
+            {create.isPending ? "Saving..." : "Save"}
           </Button>
         </div>
       ) : (
@@ -91,8 +91,8 @@ export function DesignationSelect({
       {adding ? (
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New designation" />
-          <Button type="button" onClick={() => create.mutate()} disabled={!name.trim()}>
-            Save
+          <Button type="button" loading={create.isPending} onClick={() => create.mutate()} disabled={!name.trim()}>
+            {create.isPending ? "Saving..." : "Save"}
           </Button>
         </div>
       ) : (

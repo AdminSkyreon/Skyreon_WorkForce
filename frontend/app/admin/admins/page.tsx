@@ -36,7 +36,13 @@ export default function AdminsPage() {
               <Badge tone={admin.is_active ? "good" : "bad"}>{admin.is_active ? "active" : "inactive"}</Badge>
             </div>
             {admin.is_active && (
-              <Button variant="ghost" onClick={() => deactivate.mutate(admin.id)}>Deactivate</Button>
+              <Button
+                variant="ghost"
+                loading={deactivate.isPending && deactivate.variables === admin.id}
+                onClick={() => deactivate.mutate(admin.id)}
+              >
+                Deactivate
+              </Button>
             )}
           </div>
         ))}
@@ -48,7 +54,9 @@ export default function AdminsPage() {
           <div><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
           <div><Label>Temporary password</Label><Input value={password} onChange={(e) => setPassword(e.target.value)} /></div>
           {create.error ? <p className="text-sm text-red-700">{create.error.message}</p> : null}
-          <Button onClick={() => create.mutate()} disabled={!email || !name}>Create admin</Button>
+          <Button loading={create.isPending} onClick={() => create.mutate()} disabled={!email || !name}>
+            {create.isPending ? "Creating..." : "Create admin"}
+          </Button>
         </div>
       </Card>
     </div>

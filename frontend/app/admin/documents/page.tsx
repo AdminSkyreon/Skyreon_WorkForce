@@ -41,7 +41,11 @@ export default function DocumentsPage() {
             <p className="font-semibold">{row.name}</p>
             <Badge tone={row.provided ? "good" : "warn"}>{row.provided ? "Collected" : "Missing"}</Badge>
           </div>
-          <Button variant="outline" onClick={() => toggle.mutate(row)}>
+          <Button
+            variant="outline"
+            loading={toggle.isPending && toggle.variables === row}
+            onClick={() => toggle.mutate(row)}
+          >
             {row.provided ? "Mark missing" : "Collected"}
           </Button>
         </Card>

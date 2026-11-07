@@ -44,8 +44,19 @@ export default function AdminReimbursementsPage() {
             <>
               <Textarea className="mt-3" placeholder="Comment" value={comments[claim.id] || ""} onChange={(e) => setComments((p) => ({ ...p, [claim.id]: e.target.value }))} />
               <div className="mt-3 flex gap-2">
-                <Button onClick={() => review.mutate({ id: claim.id, action: "approve", comment: comments[claim.id] || "" })}>Approve</Button>
-                <Button variant="danger" onClick={() => review.mutate({ id: claim.id, action: "reject", comment: comments[claim.id] || "" })}>Reject</Button>
+                <Button
+                  loading={review.isPending && review.variables?.id === claim.id && review.variables?.action === "approve"}
+                  onClick={() => review.mutate({ id: claim.id, action: "approve", comment: comments[claim.id] || "" })}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={review.isPending && review.variables?.id === claim.id && review.variables?.action === "reject"}
+                  onClick={() => review.mutate({ id: claim.id, action: "reject", comment: comments[claim.id] || "" })}
+                >
+                  Reject
+                </Button>
               </div>
             </>
           )}

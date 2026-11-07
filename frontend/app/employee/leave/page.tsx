@@ -58,7 +58,12 @@ export default function EmployeeLeavePage() {
               </Badge>
             </div>
             {req.status === "pending" && (
-              <Button className="mt-3" variant="outline" onClick={() => cancel.mutate(req.id)}>
+              <Button
+                className="mt-3"
+                variant="outline"
+                loading={cancel.isPending && cancel.variables === req.id}
+                onClick={() => cancel.mutate(req.id)}
+              >
                 Cancel
               </Button>
             )}
@@ -114,7 +119,7 @@ export default function EmployeeLeavePage() {
               Half day
             </label>
             <Textarea placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <Button onClick={() => apply.mutate()}>Submit request</Button>
+            <Button loading={apply.isPending} onClick={() => apply.mutate()}>{apply.isPending ? "Submitting..." : "Submit request"}</Button>
           </div>
         </Card>
       </div>

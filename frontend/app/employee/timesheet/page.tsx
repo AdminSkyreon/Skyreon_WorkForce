@@ -202,8 +202,12 @@ export default function TimesheetPage() {
         >
           Manual entry
         </Button>
-        <Button onClick={() => submit.mutate()} disabled={submitDisabled}>
-          Submit week
+        <Button
+          loading={submit.isPending}
+          onClick={() => submit.mutate()}
+          disabled={submitDisabled}
+        >
+          {submit.isPending ? "Submitting..." : "Submit week"}
         </Button>
           </>
         )}
@@ -475,6 +479,7 @@ export default function TimesheetPage() {
           </div>
           {add.error ? <p className="text-sm text-red-700">{add.error.message}</p> : null}
           <Button
+            loading={add.isPending}
             onClick={() => add.mutate()}
             disabled={
               !reason.trim() ||

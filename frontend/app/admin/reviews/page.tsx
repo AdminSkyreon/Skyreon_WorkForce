@@ -59,8 +59,12 @@ export default function ReviewsPage() {
             ))}
           </Select>
           <Textarea value={review.summary} onChange={(e) => setReview((p) => ({ ...p, summary: e.target.value }))} placeholder="Review summary" />
-          <Button onClick={() => save.mutate()} disabled={!review.employee_id}>
-            Save review
+          <Button
+            loading={save.isPending}
+            onClick={() => save.mutate()}
+            disabled={!review.employee_id}
+          >
+            {save.isPending ? "Saving..." : "Save review"}
           </Button>
         </Card>
       )}
@@ -87,7 +91,7 @@ export default function ReviewsPage() {
             <Label>End</Label>
             <Input type="date" value={form.end_date} onChange={(e) => setForm((p) => ({ ...p, end_date: e.target.value }))} />
           </div>
-          <Button onClick={() => create.mutate()}>Create</Button>
+          <Button loading={create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Creating..." : "Create"}</Button>
         </div>
       </Modal>
     </div>

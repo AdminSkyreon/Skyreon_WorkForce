@@ -235,7 +235,14 @@ export default function ProjectsPage() {
             <Input {...form.register("budgeted_hours")} />
           </div>
           <div className="md:col-span-2">
-            <Button type="submit">{editing ? "Save changes" : "Create"}</Button>
+            <Button
+              type="submit"
+              loading={editing ? update.isPending : create.isPending}
+            >
+              {editing
+                ? update.isPending ? "Saving..." : "Save changes"
+                : create.isPending ? "Creating..." : "Create"}
+            </Button>
           </div>
         </form>
       </Modal>

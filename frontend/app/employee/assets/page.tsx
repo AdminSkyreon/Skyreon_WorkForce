@@ -23,7 +23,7 @@ export default function MyAssetsPage() {
           {asset.acknowledged ? (
             <Badge tone="good">Acknowledged</Badge>
           ) : (
-            <Button onClick={() => ack.mutate(asset.id)}>Acknowledge</Button>
+            <Button loading={ack.isPending && ack.variables === asset.id} onClick={() => ack.mutate(asset.id)}>{ack.isPending && ack.variables === asset.id ? "Acknowledging..." : "Acknowledge"}</Button>
           )}
         </Card>
       ))}

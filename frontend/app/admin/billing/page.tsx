@@ -389,7 +389,7 @@ export default function BillingPage() {
                 type="button"
                 variant="outline"
                 className="mt-2"
-                disabled={suggestInvoice.isPending}
+                loading={suggestInvoice.isPending}
                 onClick={() => suggestInvoice.mutate()}
               >
                 {suggestInvoice.isPending ? "Calculating…" : "Auto-calculate from approved hours"}
@@ -431,10 +431,13 @@ export default function BillingPage() {
             <p className="text-sm text-red-700">{(editInvoice ? updateInvoice.error : createInvoice.error)?.message}</p>
           ) : null}
           <Button
+            loading={editInvoice ? updateInvoice.isPending : createInvoice.isPending}
             onClick={() => (editInvoice ? updateInvoice.mutate() : createInvoice.mutate())}
             disabled={!invoiceForm.project_id || !invoiceForm.taxable_amount}
           >
-            {editInvoice ? "Save changes" : "Save invoice"}
+            {editInvoice
+              ? updateInvoice.isPending ? "Saving..." : "Save changes"
+              : createInvoice.isPending ? "Saving..." : "Save invoice"}
           </Button>
         </div>
       </Modal>
@@ -491,10 +494,13 @@ export default function BillingPage() {
             <p className="text-sm text-red-700">{(editPayment ? updatePayment.error : createPayment.error)?.message}</p>
           ) : null}
           <Button
+            loading={editPayment ? updatePayment.isPending : createPayment.isPending}
             onClick={() => (editPayment ? updatePayment.mutate() : createPayment.mutate())}
             disabled={!payForm.invoice_id || !payForm.amount}
           >
-            {editPayment ? "Save changes" : "Save payment"}
+            {editPayment
+              ? updatePayment.isPending ? "Saving..." : "Save changes"
+              : createPayment.isPending ? "Saving..." : "Save payment"}
           </Button>
         </div>
       </Modal>

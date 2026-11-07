@@ -278,7 +278,7 @@ export default function AdminTimesheetsPage() {
                   />
                   <div className="flex flex-wrap gap-2">
                     <Button
-                      disabled={review.isPending}
+                      loading={review.isPending && review.variables?.action === "approve"}
                       onClick={() =>
                         review.mutate({ id: selected.id!, action: "approve", comment: comments[selected.id!] ?? "" })
                       }
@@ -287,7 +287,7 @@ export default function AdminTimesheetsPage() {
                     </Button>
                     <Button
                       variant="danger"
-                      disabled={review.isPending}
+                      loading={review.isPending && review.variables?.action === "reject"}
                       onClick={() =>
                         review.mutate({ id: selected.id!, action: "reject", comment: comments[selected.id!] ?? "" })
                       }

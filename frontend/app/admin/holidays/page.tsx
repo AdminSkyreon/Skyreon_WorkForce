@@ -87,7 +87,11 @@ export default function HolidaysPage() {
                           setEditLocationId(h.location_id || "");
                         }}
                       />
-                      <Button variant="ghost" onClick={() => remove.mutate(h.id)}>
+                      <Button
+                        variant="ghost"
+                        loading={remove.isPending && remove.variables === h.id}
+                        onClick={() => remove.mutate(h.id)}
+                      >
                         Remove
                       </Button>
                     </div>
@@ -123,7 +127,7 @@ export default function HolidaysPage() {
                 ))}
             </Select>
           </div>
-          <Button onClick={() => create.mutate()}>Save</Button>
+          <Button loading={create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Saving..." : "Save"}</Button>
         </div>
       </Card>
       <Modal open={!!editing} title="Edit holiday" onClose={() => setEditing(null)}>
@@ -150,8 +154,12 @@ export default function HolidaysPage() {
             </Select>
           </div>
           {update.error ? <p className="text-sm text-red-700">{update.error.message}</p> : null}
-          <Button onClick={() => update.mutate()} disabled={!editName || !editDate}>
-            Save changes
+          <Button
+            loading={update.isPending}
+            onClick={() => update.mutate()}
+            disabled={!editName || !editDate}
+          >
+            {update.isPending ? "Saving..." : "Save changes"}
           </Button>
         </div>
       </Modal>

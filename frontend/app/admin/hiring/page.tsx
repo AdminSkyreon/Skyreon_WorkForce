@@ -167,8 +167,13 @@ export default function HiringPage() {
           {(editingJob ? updateJob.error : create.error) ? (
             <p className="text-sm text-red-700">{(editingJob ? updateJob.error : create.error)?.message}</p>
           ) : null}
-          <Button onClick={() => (editingJob ? updateJob.mutate() : create.mutate())}>
-            {editingJob ? "Save changes" : "Create"}
+          <Button
+            loading={editingJob ? updateJob.isPending : create.isPending}
+            onClick={() => (editingJob ? updateJob.mutate() : create.mutate())}
+          >
+            {editingJob
+              ? updateJob.isPending ? "Saving..." : "Save changes"
+              : create.isPending ? "Creating..." : "Create"}
           </Button>
         </div>
       </Modal>
@@ -192,8 +197,13 @@ export default function HiringPage() {
           {(editingApplicant ? updateApplicant.error : addApplicant.error) ? (
             <p className="text-sm text-red-700">{(editingApplicant ? updateApplicant.error : addApplicant.error)?.message}</p>
           ) : null}
-          <Button onClick={() => (editingApplicant ? updateApplicant.mutate() : addApplicant.mutate())}>
-            {editingApplicant ? "Save changes" : "Add"}
+          <Button
+            loading={editingApplicant ? updateApplicant.isPending : addApplicant.isPending}
+            onClick={() => (editingApplicant ? updateApplicant.mutate() : addApplicant.mutate())}
+          >
+            {editingApplicant
+              ? updateApplicant.isPending ? "Saving..." : "Save changes"
+              : addApplicant.isPending ? "Adding..." : "Add"}
           </Button>
         </div>
       </Modal>

@@ -83,8 +83,12 @@ export default function AssetsPage() {
               }}
             />
             {asset.status === "assigned" ? (
-              <Button variant="outline" onClick={() => ret.mutate(asset.id)}>
-                Return
+              <Button
+                variant="outline"
+                loading={ret.isPending && ret.variables === asset.id}
+                onClick={() => ret.mutate(asset.id)}
+              >
+                {ret.isPending && ret.variables === asset.id ? "Returning..." : "Return"}
               </Button>
             ) : (
               <Select onChange={(e) => e.target.value && assign.mutate({ id: asset.id, employeeId: e.target.value })}>
@@ -112,8 +116,17 @@ export default function AssetsPage() {
           {(editing ? update.error : create.error) ? (
             <p className="text-sm text-red-700">{(editing ? update.error : create.error)?.message}</p>
           ) : null}
-          <Button onClick={() => (editing ? update.mutate() : create.mutate())}>
-            {editing ? "Save changes" : "Save"}
+          <Button
+            loading={editing ? update.isPending : create.isPending}
+            onClick={() => (editing ? update.mutate() : create.mutate())}
+          >
+            {editing
+              ? update.isPending
+                ? "Saving..."
+                : "Save changes"
+              : create.isPending
+                ? "Saving..."
+                : "Save"}
           </Button>
         </div>
       </Modal>

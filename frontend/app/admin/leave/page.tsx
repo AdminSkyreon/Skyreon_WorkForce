@@ -134,8 +134,17 @@ export default function AdminLeavePage() {
             </div>
             {req.status === "pending" && (
               <div className="mt-4 flex gap-2">
-                <Button onClick={() => review.mutate({ id: req.id, action: "approve" })}>Approve</Button>
-                <Button variant="danger" onClick={() => review.mutate({ id: req.id, action: "reject" })}>
+                <Button
+                  loading={review.isPending && review.variables?.id === req.id && review.variables?.action === "approve"}
+                  onClick={() => review.mutate({ id: req.id, action: "approve" })}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={review.isPending && review.variables?.id === req.id && review.variables?.action === "reject"}
+                  onClick={() => review.mutate({ id: req.id, action: "reject" })}
+                >
                   Reject
                 </Button>
               </div>
@@ -183,7 +192,7 @@ export default function AdminLeavePage() {
               Half day
             </label>
             <Textarea placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <Button onClick={() => addLeave.mutate()}>Add leave</Button>
+            <Button loading={addLeave.isPending} onClick={() => addLeave.mutate()}>{addLeave.isPending ? "Adding..." : "Add leave"}</Button>
             {addLeave.error ? <p className="text-sm text-red-700">{addLeave.error.message}</p> : null}
           </div>
         </Card>
@@ -226,7 +235,7 @@ export default function AdminLeavePage() {
                 <Input value={newPerMonth} onChange={(e) => setNewPerMonth(e.target.value)} />
               </>
             ) : null}
-            <Button onClick={() => createType.mutate()}>Add type</Button>
+            <Button loading={createType.isPending} onClick={() => createType.mutate()}>{createType.isPending ? "Adding..." : "Add type"}</Button>
           </div>
         </Card>
       </div>
@@ -268,8 +277,8 @@ export default function AdminLeavePage() {
                 : "Leave without pay has no allocation."}
             </p>
           )}
-          <Button onClick={() => saveType.mutate()} disabled={saveType.isPending}>
-            Save
+          <Button loading={saveType.isPending} onClick={() => saveType.mutate()}>
+            {saveType.isPending ? "Saving..." : "Save"}
           </Button>
           {saveType.error ? <p className="text-sm text-red-700">{saveType.error.message}</p> : null}
         </div>

@@ -22,7 +22,11 @@ export default function MyReviewsPage() {
           </div>
           <p className="mt-2 text-sm text-ink/70">{row.summary}</p>
           {!row.acknowledged && (
-            <Button className="mt-3" onClick={() => ack.mutate(row.id)}>
+            <Button
+              className="mt-3"
+              loading={ack.isPending && ack.variables === row.id}
+              onClick={() => ack.mutate(row.id)}
+            >
               Acknowledge
             </Button>
           )}

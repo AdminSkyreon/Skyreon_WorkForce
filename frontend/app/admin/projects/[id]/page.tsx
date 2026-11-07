@@ -316,8 +316,13 @@ export default function ProjectDetailPage() {
             <Label>Description</Label>
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional details" />
           </div>
-          <Button onClick={() => (editingTask ? saveTask.mutate() : createTask.mutate())}>
-            {editingTask ? "Save changes" : "Create task"}
+          <Button
+            loading={editingTask ? saveTask.isPending : createTask.isPending}
+            onClick={() => (editingTask ? saveTask.mutate() : createTask.mutate())}
+          >
+            {editingTask
+              ? saveTask.isPending ? "Saving..." : "Save changes"
+              : createTask.isPending ? "Creating..." : "Create task"}
           </Button>
         </div>
       </Modal>

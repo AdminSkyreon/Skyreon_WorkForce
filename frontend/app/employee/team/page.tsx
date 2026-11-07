@@ -46,8 +46,19 @@ export default function MyTeamPage() {
               <p className="text-sm text-ink/60">{req.leave_type_name} · {req.start_date} → {req.end_date}</p>
               <Textarea className="mt-3" placeholder="Comment" value={comments[req.id] || ""} onChange={(e) => setComments((p) => ({ ...p, [req.id]: e.target.value }))} />
               <div className="mt-3 flex gap-2">
-                <Button onClick={() => reviewLeave.mutate({ id: req.id, action: "approve", comment: comments[req.id] || "" })}>Approve</Button>
-                <Button variant="danger" onClick={() => reviewLeave.mutate({ id: req.id, action: "reject", comment: comments[req.id] || "" })}>Reject</Button>
+                <Button
+                  loading={reviewLeave.isPending && reviewLeave.variables?.id === req.id && reviewLeave.variables?.action === "approve"}
+                  onClick={() => reviewLeave.mutate({ id: req.id, action: "approve", comment: comments[req.id] || "" })}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={reviewLeave.isPending && reviewLeave.variables?.id === req.id && reviewLeave.variables?.action === "reject"}
+                  onClick={() => reviewLeave.mutate({ id: req.id, action: "reject", comment: comments[req.id] || "" })}
+                >
+                  Reject
+                </Button>
               </div>
             </Card>
           ))}
@@ -63,8 +74,19 @@ export default function MyTeamPage() {
               <p className="text-sm text-ink/60">{claim.category} · {claim.spend_date}</p>
               <Textarea className="mt-3" placeholder="Comment" value={comments[claim.id] || ""} onChange={(e) => setComments((p) => ({ ...p, [claim.id]: e.target.value }))} />
               <div className="mt-3 flex gap-2">
-                <Button onClick={() => reviewClaim.mutate({ id: claim.id, action: "approve", comment: comments[claim.id] || "" })}>Approve</Button>
-                <Button variant="danger" onClick={() => reviewClaim.mutate({ id: claim.id, action: "reject", comment: comments[claim.id] || "" })}>Reject</Button>
+                <Button
+                  loading={reviewClaim.isPending && reviewClaim.variables?.id === claim.id && reviewClaim.variables?.action === "approve"}
+                  onClick={() => reviewClaim.mutate({ id: claim.id, action: "approve", comment: comments[claim.id] || "" })}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={reviewClaim.isPending && reviewClaim.variables?.id === claim.id && reviewClaim.variables?.action === "reject"}
+                  onClick={() => reviewClaim.mutate({ id: claim.id, action: "reject", comment: comments[claim.id] || "" })}
+                >
+                  Reject
+                </Button>
               </div>
             </Card>
           ))}

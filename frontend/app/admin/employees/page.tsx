@@ -357,7 +357,9 @@ export default function EmployeesPage() {
             </Select>
           </div>
           <div className="md:col-span-2">
-            <Button type="submit">Create account</Button>
+            <Button type="submit" loading={create.isPending}>
+              {create.isPending ? "Creating..." : "Create account"}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -433,8 +435,12 @@ export default function EmployeesPage() {
           </div>
           {update.error ? <p className="md:col-span-2 text-sm text-red-700">{update.error.message}</p> : null}
           <div className="md:col-span-2">
-            <Button onClick={() => update.mutate()} disabled={!editForm.name || !editForm.designation || !editForm.department}>
-              Save changes
+            <Button 
+              onClick={() => update.mutate()} 
+              loading={update.isPending}
+              disabled={!editForm.name || !editForm.designation || !editForm.department}
+            >
+              {update.isPending ? "Saving..." : "Save changes"}
             </Button>
           </div>
         </div>
@@ -517,9 +523,9 @@ export default function EmployeesPage() {
         <Label>Temporary password</Label>
         <Input value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} />
         <p className="mt-2 text-sm text-ink/60">The employee must change this on next login.</p>
-        <Button className="mt-4" onClick={() => resetPassword.mutate()}>
-          Reset
-        </Button>
+          <Button className="mt-4" loading={resetPassword.isPending} onClick={() => resetPassword.mutate()}>
+            {resetPassword.isPending ? "Resetting..." : "Reset"}
+          </Button>
       </Modal>
     </div>
   );

@@ -151,8 +151,8 @@ export default function AdminExtraWorkPage() {
               <Label>Comment</Label>
               <Textarea value={comment} onChange={(e) => setComment(e.target.value)} />
             </div>
-            <Button onClick={() => approve.mutate()} disabled={approve.isPending}>
-              Approve
+            <Button loading={approve.isPending} onClick={() => approve.mutate()}>
+              {approve.isPending ? "Approving..." : "Approve"}
             </Button>
           </div>
         ) : (
@@ -163,8 +163,8 @@ export default function AdminExtraWorkPage() {
       <Modal open={Boolean(rejectId)} onClose={() => setRejectId(null)} title="Reject extra work">
         <div className="space-y-3">
           <Textarea placeholder="Reason" value={rejectComment} onChange={(e) => setRejectComment(e.target.value)} />
-          <Button variant="danger" onClick={() => reject.mutate()} disabled={reject.isPending}>
-            Reject
+          <Button variant="danger" loading={reject.isPending} onClick={() => reject.mutate()}>
+            {reject.isPending ? "Rejecting..." : "Reject"}
           </Button>
         </div>
       </Modal>

@@ -65,7 +65,7 @@ export default function CompanyPage() {
         <p className="mt-1 text-xs text-ink/50">{profile.data?.has_signature ? "A signature is already stored." : "No signature uploaded yet."}</p>
       </div>
       {save.error ? <p className="text-sm text-red-700">{save.error.message}</p> : null}
-      <Button onClick={() => save.mutate()}>Save letterhead</Button>
+      <Button loading={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving..." : "Save letterhead"}</Button>
     </Card>
   );
 }

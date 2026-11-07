@@ -56,7 +56,12 @@ export default function EmployeeReimbursementsPage() {
               <Badge tone={tone[claim.status]}>{claim.status}</Badge>
             </div>
             {claim.status === "submitted" && (
-              <Button className="mt-3" variant="outline" onClick={() => cancel.mutate(claim.id)}>
+              <Button
+                className="mt-3"
+                variant="outline"
+                loading={cancel.isPending && cancel.variables === claim.id}
+                onClick={() => cancel.mutate(claim.id)}
+              >
                 Cancel
               </Button>
             )}
@@ -97,8 +102,12 @@ export default function EmployeeReimbursementsPage() {
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
           {apply.error ? <p className="text-sm text-red-700">{apply.error.message}</p> : null}
-          <Button onClick={() => apply.mutate()} disabled={!amount || !spendDate || apply.isPending}>
-            Submit claim
+          <Button
+            loading={apply.isPending}
+            disabled={!amount || !spendDate}
+            onClick={() => apply.mutate()}
+          >
+            {apply.isPending ? "Submitting..." : "Submit claim"}
           </Button>
         </div>
       </Card>

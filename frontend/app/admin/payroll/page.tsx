@@ -116,10 +116,10 @@ export default function PayrollPage() {
             Open payroll PDF
           </Button>
           {!data?.closed && (
-            <Button variant="outline" onClick={() => closeMonth.mutate()}>Close month</Button>
+            <Button variant="outline" loading={closeMonth.isPending} onClick={() => closeMonth.mutate()}>{closeMonth.isPending ? "Closing..." : "Close month"}</Button>
           )}
           {data?.closed && user?.role === "super_admin" && (
-            <Button variant="outline" onClick={() => reopenMonth.mutate()}>Re-open month</Button>
+            <Button variant="outline" loading={reopenMonth.isPending} onClick={() => reopenMonth.mutate()}>{reopenMonth.isPending ? "Re-opening..." : "Re-open month"}</Button>
           )}
         </div>
       </div>
@@ -191,8 +191,12 @@ export default function PayrollPage() {
                     Payslip PDF
                   </Button>
                   {data?.closed && !paidIds.has(line.employee_id) && line.employee_id !== user?.employee_id && (
-                    <Button variant="ghost" onClick={() => markPaid.mutate(line.employee_id)}>
-                      Mark paid
+                    <Button
+                      variant="ghost"
+                      loading={markPaid.isPending && markPaid.variables === line.employee_id}
+                      onClick={() => markPaid.mutate(line.employee_id)}
+                    >
+                      {markPaid.isPending && markPaid.variables === line.employee_id ? "Marking..." : "Mark paid"}
                     </Button>
                   )}
                   {paidIds.has(line.employee_id) && <Badge tone="good">Paid</Badge>}
@@ -275,8 +279,13 @@ export default function PayrollPage() {
           </div>
         </div>
         {save.error ? <p className="mt-2 text-sm text-red-700">{save.error.message}</p> : null}
-        <Button className="mt-4" disabled={save.isPending || data?.closed} onClick={() => save.mutate()}>
-          Save payroll details
+        <Button
+          className="mt-4"
+          loading={save.isPending}
+          disabled={data?.closed}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Saving..." : "Save payroll details"}
         </Button>
       </Modal>
     </div>

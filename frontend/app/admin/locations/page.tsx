@@ -57,7 +57,11 @@ export default function LocationsPage() {
                   <Badge tone={loc.is_active ? "good" : "bad"}>{loc.is_active ? "Active" : "Inactive"}</Badge>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Button variant="ghost" onClick={() => toggle.mutate(loc)}>
+                  <Button
+                    variant="ghost"
+                    loading={toggle.isPending && toggle.variables?.id === loc.id}
+                    onClick={() => toggle.mutate(loc)}
+                  >
                     {loc.is_active ? "Deactivate" : "Activate"}
                   </Button>
                 </td>
@@ -86,7 +90,7 @@ export default function LocationsPage() {
             <Label>Country</Label>
             <Input value={country} onChange={(e) => setCountry(e.target.value)} />
           </div>
-          <Button onClick={() => create.mutate()}>Save</Button>
+          <Button loading={create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Saving..." : "Save"}</Button>
         </div>
       </Card>
     </div>
