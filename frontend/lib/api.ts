@@ -24,7 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-type ApiOptions = RequestInit & { skipAuth?: boolean; _retryCount? : number };
+type ApiOptions = RequestInit & { skipAuth?: boolean; _retryCount?: number };
 
 function humanizeErrorMessage(status: number, detail: string): string {
   if (status === 401) {
@@ -40,7 +40,7 @@ function humanizeErrorMessage(status: number, detail: string): string {
     return "The requested information could not be found.";
   }
   if (status === 429) {
-    return "Too many requests. Please wait a minute and try again.";
+    return "The server is receiving too many requests. Please wait a moment and try again.";
   }
   if (status >= 500) {
     return "Our servers encountered a temporary issue. Please try again in a few moments.";
@@ -56,7 +56,6 @@ async function parseError(res: Response): Promise<ApiError> {
   try {
     const body = await res.json();
     if (Array.isArray(body.detail)) {
-      // Pydantic validation errors
       detail = body.detail.map((err: { msg?: string; loc?: string[] }) => err.msg || "Invalid field").join(", ");
     } else if (typeof body.detail === "string") {
       detail = body.detail;
@@ -71,76 +70,104 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, humanMessage);
 }
 
+// -------------------------------------------------------------
+// 1. Preemptive JWT Expiration Check (Zero external libraries)
+// -------------------------------------------------------------
+function isTokenExpired(token: string | null): boolean {
+  if (!token) return true;
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return true;
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(window.atob(base64));
+    // Buffer by 30 seconds so we never send a token that expires mid-flight
+    return Date.now() >= (payload.exp * 1000) - 30_000;
+  } catch {
+    return true;
+  }
+}
+
+// -------------------------------------------------------------
+// 2. Concurrency Limiter: Caps in-flight requests to max 3
+// -------------------------------------------------------------
+const MAX_CONCURRENT_REQUESTS = 3;
+let activeRequests = 0;
+const pendingQueue: (() => void)[] = [];
+
+function acquireSlot(): Promise<void> {
+  if (activeRequests < MAX_CONCURRENT_REQUESTS) {
+    activeRequests++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    pendingQueue.push(resolve);
+  });
+}
+
+function releaseSlot(): void {
+  activeRequests--;
+  const next = pendingQueue.shift();
+  if (next) {
+    activeRequests++;
+    next();
+  }
+}
+
 const AUTH_TIMEOUT_MS = 45_000;
+let refreshPromise: Promise<User | null> | null = null;
 
-let refreshPromise : Promise<User | null> | null = null;
-
-export async function refreshAccess() : Promise<User | null> {
-
-  if (refreshPromise){
-    return refreshPromise
+export async function refreshAccess(): Promise<User | null> {
+  if (refreshPromise) {
+    return refreshPromise;
   }
 
   refreshPromise = (async () => {
     const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
 
-    const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS)
-
-    let res : Response
-    try{
+    let res: Response;
+    try {
       res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
         method: "POST",
-        credentials : "include",
-        signal : controller.signal,
-      })
-    }
-      catch (_err){
-        accessToken = null
-        return null
-      }
-      finally {
-        window.clearTimeout(timeout)
-      }
-
-      if (res.status === 429){
-        await new Promise((r) => setTimeout(r, 3000))
-        try{
-          res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-            method : "POST",
-            credentials : "include"
-          })
-        }catch{
-            accessToken = null
-            return null
-          }
-        }
-
-      if (!res.ok) {
-        accessToken = null
-        return null
+        credentials: "include",
+        signal: controller.signal,
+      });
+    } catch (_err) {
+      accessToken = null;
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
     }
 
-    try{
-      const body = (await res.json() as {access_token : string; user: User})
-      accessToken = body.access_token
-      syncPortalCookies(body.user)
-      return body.user
+    if (!res.ok) {
+      accessToken = null;
+      return null;
     }
-    catch{
-      accessToken = null
-      return null
+
+    try {
+      const body = (await res.json()) as { access_token: string; user: User };
+      accessToken = body.access_token;
+      syncPortalCookies(body.user);
+      return body.user;
+    } catch {
+      accessToken = null;
+      return null;
     }
   })().finally(() => {
-    refreshPromise = null
-  })
+    refreshPromise = null;
+  });
 
   return refreshPromise;
 }
 
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
-
-  if (!options.skipAuth && !accessToken && refreshPromise){
-    await refreshPromise
+  // Preemptive check: If auth is required, verify token validity BEFORE dispatching
+  if (!options.skipAuth) {
+    if (isTokenExpired(accessToken)) {
+      await refreshAccess();
+    } else if (refreshPromise) {
+      await refreshPromise;
+    }
   }
 
   const headers = new Headers(options.headers);
@@ -150,8 +177,11 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   if (accessToken && !options.skipAuth) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
-  
+
   let res: Response;
+
+  // Acquire concurrency slot to throttle parallel bursts
+  await acquireSlot();
   try {
     res = await fetch(`${API_URL}/api/v1${path}`, {
       ...options,
@@ -162,13 +192,18 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     const errorMsg = "Unable to connect to the server. Please check your internet connection.";
     toast.error("Connection Error", errorMsg);
     throw new ApiError(0, errorMsg);
+  } finally {
+    releaseSlot();
   }
 
+  // Graceful 429 backoff using Retry-After header (or minimum 6 seconds)
   if (res.status === 429 && (options._retryCount ?? 0) < 1) {
-    await new Promise((r) => setTimeout(r, 2500));
+    const retryAfter = Number(res.headers.get("Retry-After")) || 6;
+    await new Promise((r) => setTimeout(r, retryAfter * 1000));
     return api<T>(path, { ...options, _retryCount: (options._retryCount ?? 0) + 1 });
   }
 
+  // Fallback 401 handling
   if (res.status === 401 && !path.startsWith("/auth/")) {
     const user = await refreshAccess();
     if (user) return api<T>(path, options);
@@ -176,7 +211,6 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   if (!res.ok) {
     const parsed = await parseError(res);
-    // Don't show toast for silent background refresh checks
     if (!path.includes("/auth/refresh")) {
       toast.error("Action Failed", parsed.detail);
     }
@@ -188,10 +222,20 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 }
 
 export async function downloadPdf(path: string, filename: string) {
-  if (!accessToken) await refreshAccess();
+  if (isTokenExpired(accessToken)) {
+    await refreshAccess();
+  }
   const headers = new Headers();
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  const res = await fetch(`${API_URL}/api/v1${path}`, { headers, credentials: "include" });
+  
+  await acquireSlot();
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/v1${path}`, { headers, credentials: "include" });
+  } finally {
+    releaseSlot();
+  }
+
   if (res.status === 401) {
     const user = await refreshAccess();
     if (user) return downloadPdf(path, filename);
