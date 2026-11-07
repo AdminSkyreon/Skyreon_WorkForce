@@ -24,7 +24,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    if (!hasSessionCookie()) {
+    const isProtectedRoute =
+      typeof window !== "undefined" &&
+      (window.location.pathname.startsWith("/admin") || window.location.pathname.startsWith("/employee"));
+
+    // Only skip refresh on public pages (e.g. /login) when no session cookie exists
+    if (!isProtectedRoute && !hasSessionCookie()) {
       setLoading(false);
       return;
     }
