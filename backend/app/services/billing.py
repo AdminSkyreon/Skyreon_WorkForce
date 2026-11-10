@@ -217,6 +217,7 @@ async def update_invoice(db: AsyncSession, user: User, invoice_id: UUID, data: I
     if "taxable_amount" in data.model_dump(exclude_unset=True) or "gst_percent" in data.model_dump(exclude_unset=True):
         gst_amount, total = compute_gst(taxable, gst_percent)
         received = (await _received_map(db, [invoice.id])).get(invoice.id, Decimal("0.00"))
+
         if total < received:
             raise BadRequest(f"Invoice total cannot be less than {received} already received")
         invoice.taxable_amount = taxable
@@ -254,9 +255,12 @@ async def apply_payment(db: AsyncSession, user: User, invoice_id: UUID, data: In
     if invoice is None:
         raise NotFound("Invoice not found")
     received = (await _received_map(db, [invoice.id])).get(invoice.id, Decimal("0.00"))
+
     outstanding = _money(invoice.amount) - received
     if data.amount > outstanding:
         raise BadRequest(f"This invoice has only {outstanding} outstanding")
+    if data.received_date < invoice.invoice_date:
+        raise BadRequest("Received date cannot be earlier than invoice date")
     row = ProjectPayment(
         project_id=invoice.project_id,
         invoice_id=invoice.id,
@@ -328,6 +332,7 @@ async def update_payment(db: AsyncSession, user: User, payment_id: UUID, data: I
             raise NotFound("Invoice not found")
         new_amount = _money(payload.get("amount", payment.amount))
         received = (await _received_map(db, [invoice.id])).get(invoice.id, Decimal("0.00"))
+
         if payment.invoice_id == invoice.id:
             received = received - _money(payment.amount)
         outstanding = _money(invoice.amount) - received
@@ -335,6 +340,12 @@ async def update_payment(db: AsyncSession, user: User, payment_id: UUID, data: I
             raise BadRequest(f"This invoice has only {outstanding} outstanding")
         payment.invoice_id = invoice.id
         payment.project_id = invoice.project_id
+    if "received_date" in payload and payload["received_date"]:
+        next_received = payload["received_date"]
+    else:
+        next_received = payment.received_date
+    if invoice is not None and next_received < invoice.invoice_date:
+        raise BadRequest("Received date cannot be earlier than invoice date")
     if "received_date" in payload and payload["received_date"]:
         payment.year = payload["received_date"].year
         payment.month = payload["received_date"].month

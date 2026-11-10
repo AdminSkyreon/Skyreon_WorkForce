@@ -1,11 +1,14 @@
 from datetime import date
 from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from app.models.hrms import ApplicantStage, AssetStatus, AttendanceMark, BillStatus, VendorCategory
 from app.schemas.common import ORMModel
+
+VendorName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 
 
 class PaymentIn(BaseModel):
@@ -81,28 +84,35 @@ class ContractorPayIn(BaseModel):
 
 
 class VendorBillIn(BaseModel):
-    vendor_name: str = Field(min_length=1, max_length=255)
+    vendor_name: VendorName
     category: VendorCategory
     amount: Decimal = Field(gt=0)
     gst_percent: Decimal | None = Field(default=None, ge=0, le=100)
     gst_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
     bill_date: date
-    year: int | None = None
-    month: int | None = None
+    year: int | None = Field(default=None, ge=2000, le=2100)
+    month: int | None = Field(default=None, ge=1, le=12)
     project_id: UUID | None = None
-    note: str = ""
+    note: str = Field(default="", max_length=500)
     recurring: bool = False
 
 
 class VendorBillUpdate(BaseModel):
-    vendor_name: str | None = Field(default=None, min_length=1, max_length=255)
+    vendor_name: VendorName | None = None
     category: VendorCategory | None = None
     amount: Decimal | None = Field(default=None, gt=0)
     gst_percent: Decimal | None = Field(default=None, ge=0, le=100)
     gst_amount: Decimal | None = Field(default=None, ge=0)
     bill_date: date | None = None
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=500)
     recurring: bool | None = None
+
+    @model_validator(mode="after")
+    def reject_nulls(self) -> "VendorBillUpdate":
+        for field in ("vendor_name", "category", "amount", "gst_amount", "bill_date", "note", "recurring"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class VendorBillOut(ORMModel):

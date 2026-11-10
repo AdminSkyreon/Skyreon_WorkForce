@@ -373,8 +373,8 @@ def _vendor_gst(amount: Decimal, gst_percent: Decimal | None, gst_amount: Decima
 
 
 async def create_bill(db: AsyncSession, user: User, data: VendorBillIn) -> VendorBillOut:
-    year = data.year or data.bill_date.year
-    month = data.month or data.bill_date.month
+    year = data.bill_date.year
+    month = data.bill_date.month
     gst_amount = _vendor_gst(data.amount, data.gst_percent, data.gst_amount)
     row = VendorBill(
         vendor_name=data.vendor_name,
@@ -433,6 +433,10 @@ async def mark_bill_paid(db: AsyncSession, bill_id: UUID, paid_date: date) -> Ve
     row = await db.get(VendorBill, bill_id)
     if row is None:
         raise NotFound("Bill not found")
+    if row.status == BillStatus.PAID:
+        raise BadRequest("Bill is already marked paid")
+    if paid_date < row.bill_date:
+        raise BadRequest("Paid date cannot be earlier than bill date")
     row.status = BillStatus.PAID
     row.paid_date = paid_date
     await db.commit()

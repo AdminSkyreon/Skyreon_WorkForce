@@ -1,17 +1,20 @@
 from datetime import date
 from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from app.schemas.common import ORMModel
+
+InvoiceNo80 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)]
 
 
 class BillingIn(BaseModel):
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
     amount: Decimal = Field(ge=0)
-    note: str = ""
+    note: str = Field(default="", max_length=500)
 
 
 class BillingOut(ORMModel):
@@ -28,20 +31,27 @@ class BillingOut(ORMModel):
 
 class InvoiceCreate(BaseModel):
     project_id: UUID
-    invoice_no: str | None = Field(default=None, max_length=80)
+    invoice_no: InvoiceNo80 | None = None
     invoice_date: date
     taxable_amount: Decimal = Field(gt=0)
     gst_percent: Decimal = Field(default=Decimal("18.00"), ge=0, le=100)
-    note: str = ""
+    note: str = Field(default="", max_length=500)
 
 
 class InvoiceUpdate(BaseModel):
     project_id: UUID | None = None
-    invoice_no: str | None = Field(default=None, max_length=80)
+    invoice_no: InvoiceNo80 | None = None
     invoice_date: date | None = None
     taxable_amount: Decimal | None = Field(default=None, gt=0)
     gst_percent: Decimal | None = Field(default=None, ge=0, le=100)
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def reject_nulls(self) -> "InvoiceUpdate":
+        for field in ("project_id", "invoice_no", "invoice_date", "taxable_amount", "gst_percent", "note"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class InvoiceOut(ORMModel):
@@ -79,14 +89,21 @@ class InvoiceSuggestOut(BaseModel):
 class InvoicePaymentIn(BaseModel):
     amount: Decimal = Field(gt=0)
     received_date: date
-    note: str = ""
+    note: str = Field(default="", max_length=500)
 
 
 class InvoicePaymentUpdate(BaseModel):
     invoice_id: UUID | None = None
     amount: Decimal | None = Field(default=None, gt=0)
     received_date: date | None = None
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def reject_nulls(self) -> "InvoicePaymentUpdate":
+        for field in ("invoice_id", "amount", "received_date", "note"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class InvoicePaymentOut(ORMModel):
