@@ -46,7 +46,7 @@ export default function EmployeesPage() {
   }, [search]);
   const [open, setOpen] = useState(false);
   const [resetId, setResetId] = useState<string | null>(null);
-  const [tempPassword, setTempPassword] = useState("TempPass123");
+  const [tempPassword, setTempPassword] = useState("");
   const [viewId, setViewId] = useState<string | null>(null);
   const [editEmp, setEditEmp] = useState<Employee | null>(null);
   const [editForm, setEditForm] = useState({
@@ -184,7 +184,11 @@ const toggleStatus = useMutation({
         method: "POST",
         body: JSON.stringify({ temporary_password: tempPassword }),
       }),
-    onSuccess: () => setResetId(null),
+    onSuccess: () => {
+      setResetId(null);
+      setTempPassword("");
+      toast.success("Password reset", "The employee will be required to change it on next login.");
+    },
   });
 
   return (
@@ -546,13 +550,30 @@ const toggleStatus = useMutation({
         )}
       </Modal>
 
-      <Modal open={!!resetId} title="Reset password" onClose={() => setResetId(null)}>
+      <Modal
+        open={!!resetId}
+        title="Reset password"
+        onClose={() => {
+          setResetId(null);
+          setTempPassword("");
+        }}
+      >
         <Label>Temporary password</Label>
-        <Input value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} />
+        <Input
+          type="password"
+          placeholder="Enter temporary password (min 8 chars)"
+          value={tempPassword}
+          onChange={(e) => setTempPassword(e.target.value)}
+        />
         <p className="mt-2 text-sm text-ink/60">The employee must change this on next login.</p>
-          <Button className="mt-4" loading={resetPassword.isPending} onClick={() => resetPassword.mutate()}>
-            {resetPassword.isPending ? "Resetting..." : "Reset"}
-          </Button>
+        <Button
+          className="mt-4"
+          disabled={tempPassword.length < 8}
+          loading={resetPassword.isPending}
+          onClick={() => resetPassword.mutate()}
+        >
+          {resetPassword.isPending ? "Resetting..." : "Reset"}
+        </Button>
       </Modal>
     </div>
   );
