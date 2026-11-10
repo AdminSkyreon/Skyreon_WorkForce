@@ -6,7 +6,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import Conflict, Forbidden, NotFound
+from app.core.exceptions import Conflict, Forbidden, NotFound, BadRequest
 from app.models.employee import Employee
 from app.models.project import Project, ProjectMember, ProjectStatus
 from app.models.task import Task
@@ -231,6 +231,8 @@ async def update_project(db: AsyncSession, project_id: UUID, data: ProjectUpdate
         await get_employee(db, payload["manager_id"])
     for key, value in payload.items():
         setattr(project, key, value)
+    if project.end_date is not None and project.end_date < project.start_date:
+        raise BadRequest("End date cannot be earlier than start date")
     if member_ids is not None:
         await _set_members(db, project, member_ids)
     await db.commit()

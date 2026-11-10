@@ -1,9 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addDays, format, parseISO, startOfWeek } from "date-fns";
+import { addDays, format, isValid, parseISO, startOfWeek } from "date-fns";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, Input, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Card, FieldError, Input, Select, Textarea } from "@/components/ui";
+import { toast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { Timesheet } from "@/lib/types";
 import { labels } from "@/lib/utils";
@@ -50,6 +51,7 @@ export default function AdminTimesheetsPage() {
   const [search, setSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [commentError, setCommentError] = useState("");
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["admin-timesheets", view, week, year, month],
@@ -67,6 +69,8 @@ export default function AdminTimesheetsPage() {
     onSuccess: (_, vars) => {
       void qc.invalidateQueries({ queryKey: ["admin-timesheets"] });
       setComments((prev) => ({ ...prev, [vars.id]: "" }));
+      setCommentError("");
+      toast.success(vars.action === "approve" ? "Timesheet approved" : "Timesheet rejected");
     },
   });
 
@@ -131,7 +135,16 @@ export default function AdminTimesheetsPage() {
           <option value="month">Month view</option>
         </Select>
         {view === "week" ? (
-          <Input type="date" value={week} onChange={(e) => setWeek(format(startOfWeek(parseISO(e.target.value), { weekStartsOn: 1 }), "yyyy-MM-dd"))} />
+          <Input
+            type="date"
+            value={week}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              const parsed = parseISO(e.target.value);
+              if (!isValid(parsed)) return;
+              setWeek(format(startOfWeek(parsed, { weekStartsOn: 1 }), "yyyy-MM-dd"));
+            }}
+          />
         ) : (
           <Select value={`${year}-${month}`} onChange={(e) => {
             const [y, m] = e.target.value.split("-");
@@ -190,7 +203,11 @@ export default function AdminTimesheetsPage() {
                     <tr
                       key={key}
                       className={`cursor-pointer border-t border-ink/5 ${active ? "bg-mist/70" : "hover:bg-mist/40"}`}
-                      onClick={() => setOpenId(key)}
+                      onClick={() => {
+                        setOpenId(key);
+                        setCommentError("");
+                        review.reset();
+                      }}
                     >
                       <td className="px-4 py-3 font-semibold">{sheet.employee_name || "Employee"}</td>
                       <td className="px-4 py-3 text-ink/70">{names.join(", ") || "—"}</td>
@@ -272,25 +289,45 @@ export default function AdminTimesheetsPage() {
               {selected.status === "submitted" && selected.id ? (
                 <div className="space-y-3 border-t border-ink/5 pt-4">
                   <Textarea
-                    placeholder="Optional review comment for the employee"
+                    maxLength={500}
+                    disabled={review.isPending}
+                    placeholder="Review comment (required when rejecting)"
                     value={comments[selected.id] ?? ""}
-                    onChange={(e) => setComments((prev) => ({ ...prev, [selected.id!]: e.target.value }))}
+                    onChange={(e) => {
+                      setCommentError("");
+                      setComments((prev) => ({ ...prev, [selected.id!]: e.target.value }));
+                    }}
                   />
+                  <FieldError message={commentError} />
+                  {review.error ? <p className="text-sm text-red-700">{review.error.message}</p> : null}
                   <div className="flex flex-wrap gap-2">
                     <Button
+                      disabled={review.isPending}
                       loading={review.isPending && review.variables?.action === "approve"}
-                      onClick={() =>
-                        review.mutate({ id: selected.id!, action: "approve", comment: comments[selected.id!] ?? "" })
-                      }
+                      onClick={() => {
+                        setCommentError("");
+                        review.mutate({
+                          id: selected.id!,
+                          action: "approve",
+                          comment: (comments[selected.id!] ?? "").trim(),
+                        });
+                      }}
                     >
                       Approve
                     </Button>
                     <Button
                       variant="danger"
+                      disabled={review.isPending}
                       loading={review.isPending && review.variables?.action === "reject"}
-                      onClick={() =>
-                        review.mutate({ id: selected.id!, action: "reject", comment: comments[selected.id!] ?? "" })
-                      }
+                      onClick={() => {
+                        const comment = (comments[selected.id!] ?? "").trim();
+                        if (!comment) {
+                          setCommentError("Please enter a reason when rejecting a timesheet.");
+                          return;
+                        }
+                        setCommentError("");
+                        review.mutate({ id: selected.id!, action: "reject", comment });
+                      }}
                     >
                       Reject
                     </Button>

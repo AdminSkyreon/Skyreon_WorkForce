@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.hrms import ApplicantStage, AssetStatus, AttendanceMark, BillStatus, VendorCategory
 from app.schemas.common import ORMModel
@@ -205,7 +205,13 @@ class EmployeeDocumentOut(ORMModel):
 class AttendanceIn(BaseModel):
     work_date: date
     mark: AttendanceMark
-    note: str = ""
+    note: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def validate_work_date(self) -> "AttendanceIn":
+        if self.work_date > date.today():
+            raise ValueError("Cannot mark attendance for a future date")
+        return self
 
 
 class AttendanceOut(ORMModel):

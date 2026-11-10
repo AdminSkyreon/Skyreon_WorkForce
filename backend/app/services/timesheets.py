@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -151,6 +151,26 @@ async def build_timesheet(
         locked=status == TimesheetStatus.APPROVED,
     )
 
+async def _assert_daily_total_within_24h(
+    db: AsyncSession, employee_id: UUID, work_date: date, delta_seconds: int
+) -> None:
+    if delta_seconds <= 0:
+        return
+    day_start = datetime.combine(work_date, time.min, tzinfo=UTC)
+    day_end = day_start + timedelta(days=1)
+    total_seconds = (
+        await db.execute(
+            select(func.coalesce(func.sum(TaskTimeEntry.duration_seconds), 0)).where(
+                TaskTimeEntry.employee_id == employee_id,
+                TaskTimeEntry.end_time.is_not(None),
+                TaskTimeEntry.start_time >= day_start,
+                TaskTimeEntry.start_time < day_end,
+            )
+        )
+    ).scalar_one()
+    if int(total_seconds) + delta_seconds > 24 * 3600:
+        raise BadRequest(f"Total logged hours for {work_date.isoformat()} cannot exceed 24 hours")
+    
 
 async def add_manual_entry(
     db: AsyncSession, employee: Employee, data: ManualEntryRequest
@@ -170,6 +190,9 @@ async def add_manual_entry(
 
     start_dt = datetime.combine(data.work_date, time(9, 0), tzinfo=UTC)
     seconds = int(data.hours * 3600)
+
+    await _assert_daily_total_within_24h(db, employee.id, data.work_date, seconds)
+
     end_dt = start_dt + timedelta(seconds=seconds)
     db.add(
         TaskTimeEntry(
@@ -231,6 +254,7 @@ async def set_day_hours(
     manuals = [e for e in entries if e.source == TimeEntrySource.MANUAL]
     if target_seconds > current_seconds:
         extra = target_seconds - current_seconds
+        await _assert_daily_total_within_24h(db, employee.id, data.work_date, extra)
         start_dt = datetime.combine(data.work_date, time(9, 0), tzinfo=UTC) + timedelta(minutes=len(entries))
         db.add(
             TaskTimeEntry(
@@ -267,6 +291,10 @@ async def submit_week(db: AsyncSession, employee: Employee, week_start: date) ->
     week = await _ensure_week(db, employee.id, start)
     if week.status == TimesheetStatus.APPROVED:
         raise BadRequest("Approved timesheets are locked")
+
+    if week.status == TimesheetStatus.SUBMITTED:
+        raise BadRequest("Timesheet is already submitted")
+
     sheet = await build_timesheet(db, employee, start)
     if sheet.weekly_total <= 0:
         raise BadRequest("Cannot submit an empty timesheet")
@@ -373,6 +401,10 @@ async def review_week(
         raise NotFound("Timesheet not found")
     if week.status != TimesheetStatus.SUBMITTED:
         raise BadRequest("Only submitted timesheets can be reviewed")
+
+    if status == TimesheetStatus.REJECTED and not comment.strip():
+        raise BadRequest("Please enter a reason when rejecting a timesheet")
+    
     employee = (
         await db.execute(
             select(Employee).options(selectinload(Employee.user)).where(Employee.id == week.employee_id)

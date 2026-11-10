@@ -6,25 +6,54 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Badge, Button, Card, IconButton, Input, Label, Modal, Select } from "@/components/ui";
+import { Badge, Button, Card, FieldError, IconButton, Input, Label, Modal, Select } from "@/components/ui";
+import { toast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { Employee, Page, Project } from "@/lib/types";
 import { labels } from "@/lib/utils";
 
-const schema = z.object({
-  name: z.string().min(1),
-  client_name: z.string().min(1),
-  project_code: z.string().min(1),
-  description: z.string().optional(),
-  manager_id: z.string().min(1),
-  start_date: z.string().min(1),
-  end_date: z.string().optional(),
-  status: z.string(),
-  contract_type: z.string(),
-  revenue_amount: z.string(),
-  revenue_currency: z.string(),
-  budgeted_hours: z.string(),
-});
+const nonNegativeNumber = (label: string) =>
+  z
+    .string()
+    .trim()
+    .refine((val) => val !== "" && Number.isFinite(Number(val)) && Number(val) >= 0, {
+      message: `${label} must be 0 or greater`,
+    });
+
+const schema = z
+  .object({
+    name: z.string().trim().min(1, "Project name is required").max(255, "Max 255 characters"),
+    client_name: z.string().trim().min(1, "Client name is required").max(255, "Max 255 characters"),
+    project_code: z.string().trim().min(1, "Project code is required").max(50, "Max 50 characters"),
+    description: z.string().optional(),
+    manager_id: z.string().min(1, "Select a project manager"),
+    start_date: z.string().min(1, "Start date is required"),
+    end_date: z.string().optional(),
+    status: z.string(),
+    contract_type: z.string(),
+    revenue_amount: nonNegativeNumber("Revenue"),
+    revenue_currency: z.string().trim().min(1, "Currency is required").max(8, "Max 8 characters"),
+    budgeted_hours: nonNegativeNumber("Budgeted hours"),
+  })
+  .refine((v) => !v.end_date || !v.start_date || v.end_date >= v.start_date, {
+    message: "End date cannot be earlier than start date",
+    path: ["end_date"],
+  });
+
+const DEFAULT_VALUES: z.infer<typeof schema> = {
+  name: "",
+  client_name: "",
+  project_code: "",
+  description: "",
+  manager_id: "",
+  start_date: "",
+  end_date: "",
+  status: "planned",
+  contract_type: "time_and_material",
+  revenue_amount: "0",
+  revenue_currency: "USD",
+  budgeted_hours: "0",
+};
 
 export default function ProjectsPage() {
   const qc = useQueryClient();
@@ -35,8 +64,10 @@ export default function ProjectsPage() {
   const [editing, setEditing] = useState<Project | null>(null);
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
-    defaultValues: { status: "planned", contract_type: "time_and_material", revenue_currency: "USD" },
+    defaultValues: DEFAULT_VALUES,
   });
+  const startDate = form.watch("start_date");
+  const errors = form.formState.errors;
 
   const { data } = useQuery({
     queryKey: ["projects", search, status, page],
@@ -52,6 +83,14 @@ export default function ProjectsPage() {
     queryFn: () => api<Page<Employee>>("/admin/employees?page_size=100"),
   });
 
+  function closeModal() {
+    setOpen(false);
+    setEditing(null);
+    form.reset(DEFAULT_VALUES);
+    create.reset();
+    update.reset();
+  }
+
   const create = useMutation({
     mutationFn: (values: z.infer<typeof schema>) =>
       api("/admin/projects", {
@@ -60,9 +99,8 @@ export default function ProjectsPage() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["projects"] });
-      setOpen(false);
-      setEditing(null);
-      form.reset();
+      toast.success("Project created");
+      closeModal();
     },
   });
   const update = useMutation({
@@ -73,19 +111,23 @@ export default function ProjectsPage() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["projects"] });
-      setOpen(false);
-      setEditing(null);
+      toast.success("Project updated");
+      closeModal();
     },
   });
 
   function openCreate() {
     setEditing(null);
-    form.reset({ status: "planned", contract_type: "time_and_material", revenue_currency: "USD" });
+    create.reset();
+    update.reset();
+    form.reset(DEFAULT_VALUES);
     setOpen(true);
   }
 
   function openEdit(project: Project) {
     setEditing(project);
+    create.reset();
+    update.reset();
     form.reset({
       name: project.name,
       client_name: project.client_name,
@@ -102,6 +144,9 @@ export default function ProjectsPage() {
     });
     setOpen(true);
   }
+
+  const isSaving = editing ? update.isPending : create.isPending;
+  const saveError = editing ? update.error : create.error;
 
   return (
     <div className="space-y-4">
@@ -169,23 +214,26 @@ export default function ProjectsPage() {
         </Button>
       </div>
 
-      <Modal open={open} title={editing ? "Edit project" : "Create project"} onClose={() => setOpen(false)}>
+      <Modal open={open} title={editing ? "Edit project" : "Create project"} onClose={closeModal}>
         <form className="grid gap-3 md:grid-cols-2" onSubmit={form.handleSubmit((v) => (editing ? update.mutate(v) : create.mutate(v)))}>
           <div>
             <Label>Name</Label>
-            <Input {...form.register("name")} />
+            <Input maxLength={255} disabled={isSaving} {...form.register("name")} />
+            <FieldError message={errors.name?.message} />
           </div>
           <div>
             <Label>Client</Label>
-            <Input {...form.register("client_name")} />
+            <Input maxLength={255} disabled={isSaving} {...form.register("client_name")} />
+            <FieldError message={errors.client_name?.message} />
           </div>
           <div>
             <Label>Code</Label>
-            <Input {...form.register("project_code")} disabled={!!editing} />
+            <Input maxLength={50} disabled={!!editing || isSaving} {...form.register("project_code")} />
+            <FieldError message={errors.project_code?.message} />
           </div>
           <div>
             <Label>Manager</Label>
-            <Select {...form.register("manager_id")}>
+            <Select disabled={isSaving} {...form.register("manager_id")}>
               <option value="">Select</option>
               {employees.data?.items.map((emp) => (
                 <option key={emp.id} value={emp.id}>
@@ -193,18 +241,21 @@ export default function ProjectsPage() {
                 </option>
               ))}
             </Select>
+            <FieldError message={errors.manager_id?.message} />
           </div>
           <div>
             <Label>Start</Label>
-            <Input type="date" {...form.register("start_date")} />
+            <Input type="date" disabled={isSaving} {...form.register("start_date")} />
+            <FieldError message={errors.start_date?.message} />
           </div>
           <div>
             <Label>End</Label>
-            <Input type="date" {...form.register("end_date")} />
+            <Input type="date" min={startDate || undefined} disabled={isSaving} {...form.register("end_date")} />
+            <FieldError message={errors.end_date?.message} />
           </div>
           <div>
             <Label>Status</Label>
-            <Select {...form.register("status")}>
+            <Select disabled={isSaving} {...form.register("status")}>
               {Object.entries(labels.projectStatus).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
@@ -214,7 +265,7 @@ export default function ProjectsPage() {
           </div>
           <div>
             <Label>Contract</Label>
-            <Select {...form.register("contract_type")}>
+            <Select disabled={isSaving} {...form.register("contract_type")}>
               {Object.entries(labels.contract).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
@@ -224,24 +275,28 @@ export default function ProjectsPage() {
           </div>
           <div>
             <Label>Revenue</Label>
-            <Input {...form.register("revenue_amount")} />
+            <Input type="number" min="0" step="0.01" disabled={isSaving} {...form.register("revenue_amount")} />
+            <FieldError message={errors.revenue_amount?.message} />
           </div>
           <div>
             <Label>Currency</Label>
-            <Input {...form.register("revenue_currency")} />
+            <Input maxLength={8} disabled={isSaving} {...form.register("revenue_currency")} />
+            <FieldError message={errors.revenue_currency?.message} />
           </div>
           <div>
             <Label>Budgeted hours</Label>
-            <Input {...form.register("budgeted_hours")} />
+            <Input type="number" min="0" step="0.01" disabled={isSaving} {...form.register("budgeted_hours")} />
+            <FieldError message={errors.budgeted_hours?.message} />
           </div>
+          {saveError ? <p className="md:col-span-2 text-sm text-red-700">{saveError.message}</p> : null}
           <div className="md:col-span-2">
             <Button
               type="submit"
-              loading={editing ? update.isPending : create.isPending}
+              loading={isSaving}
             >
               {editing
-                ? update.isPending ? "Saving..." : "Save changes"
-                : create.isPending ? "Creating..." : "Create"}
+                ? isSaving ? "Saving..." : "Save changes"
+                : isSaving ? "Creating..." : "Create"}
             </Button>
           </div>
         </form>

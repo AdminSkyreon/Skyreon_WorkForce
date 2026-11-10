@@ -1,8 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
 import { useState } from "react";
-import { Badge, Button, Card, Input, Label, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Card, FieldError, Input, Label, Select, Textarea } from "@/components/ui";
+import { toast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { LeaveBalance, LeaveRequest, LeaveType } from "@/lib/types";
 import { labels } from "@/lib/utils";
@@ -14,10 +16,29 @@ export default function EmployeeLeavePage() {
   const [end, setEnd] = useState("");
   const [half, setHalf] = useState(false);
   const [reason, setReason] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
   const requests = useQuery({ queryKey: ["my-leave"], queryFn: () => api<LeaveRequest[]>("/me/leave") });
   const balances = useQuery({ queryKey: ["my-balances"], queryFn: () => api<LeaveBalance[]>("/me/leave/balances") });
   const types = useQuery({ queryKey: ["leave-types"], queryFn: () => api<LeaveType[]>("/leave-types") });
+
+  const today = format(new Date(), "yyyy-MM-dd");
+  const effectiveEnd = half ? start : end || start;
+  const errors = {
+    leaveType: !leaveType ? "Select a leave type" : "",
+    start: !start
+      ? "Start date is required"
+      : start < today
+        ? "Cannot apply leave for a past date"
+        : "",
+    end:
+      start && effectiveEnd && effectiveEnd < start
+        ? "End date cannot be earlier than start date"
+        : half && start && effectiveEnd !== start
+          ? "Half-day leave must be a single date"
+          : "",
+  };
+  const hasErrors = Object.values(errors).some(Boolean);
 
   const apply = useMutation({
     mutationFn: () =>
@@ -26,24 +47,36 @@ export default function EmployeeLeavePage() {
         body: JSON.stringify({
           leave_type_id: leaveType,
           start_date: start,
-          end_date: end || start,
+          end_date: effectiveEnd,
           is_half_day: half,
-          reason,
+          reason: reason.trim(),
         }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["my-leave"] });
       void qc.invalidateQueries({ queryKey: ["my-balances"] });
+      setLeaveType("");
+      setStart("");
+      setEnd("");
+      setHalf(false);
+      setReason("");
+      setSubmitted(false);
+      toast.success("Leave request submitted");
     },
   });
   const cancel = useMutation({
     mutationFn: (id: string) => api(`/me/leave/${id}/cancel`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["my-leave"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["my-leave"] });
+      void qc.invalidateQueries({ queryKey: ["my-balances"] });
+      toast.success("Leave request cancelled");
+    },
   });
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
       <div className="space-y-4">
+        {cancel.error ? <p className="text-sm text-red-700">{cancel.error.message}</p> : null}
         {requests.data?.map((req) => (
           <Card key={req.id}>
             <div className="flex justify-between">
@@ -61,6 +94,7 @@ export default function EmployeeLeavePage() {
               <Button
                 className="mt-3"
                 variant="outline"
+                disabled={cancel.isPending}
                 loading={cancel.isPending && cancel.variables === req.id}
                 onClick={() => cancel.mutate(req.id)}
               >
@@ -91,7 +125,7 @@ export default function EmployeeLeavePage() {
           <div className="mt-3 space-y-3">
             <div>
               <Label>Type</Label>
-              <Select value={leaveType} onChange={(e) => setLeaveType(e.target.value)}>
+              <Select disabled={apply.isPending} value={leaveType} onChange={(e) => setLeaveType(e.target.value)}>
                 <option value="">Select</option>
                 {types.data
                   ?.filter((t) => {
@@ -105,21 +139,66 @@ export default function EmployeeLeavePage() {
                     </option>
                   ))}
               </Select>
+              {submitted && <FieldError message={errors.leaveType} />}
             </div>
             <div>
               <Label>Start</Label>
-              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+              <Input
+                type="date"
+                min={today}
+                disabled={apply.isPending}
+                value={start}
+                onChange={(e) => {
+                  const nextStart = e.target.value;
+                  setStart(nextStart);
+                  if (half || (end && nextStart && end < nextStart)) {
+                    setEnd(nextStart);
+                  }
+                }}
+              />
+              {submitted && <FieldError message={errors.start} />}
             </div>
             <div>
               <Label>End</Label>
-              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+              <Input
+                type="date"
+                min={start || today}
+                disabled={apply.isPending || half}
+                value={half ? start : end}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+              {submitted && <FieldError message={errors.end} />}
             </div>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={half} onChange={(e) => setHalf(e.target.checked)} />
+              <input
+                type="checkbox"
+                disabled={apply.isPending}
+                checked={half}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setHalf(checked);
+                  if (checked && start) setEnd(start);
+                }}
+              />
               Half day
             </label>
-            <Textarea placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <Button loading={apply.isPending} onClick={() => apply.mutate()}>{apply.isPending ? "Submitting..." : "Submit request"}</Button>
+            <Textarea
+              maxLength={500}
+              disabled={apply.isPending}
+              placeholder="Reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            {apply.error ? <p className="text-sm text-red-700">{apply.error.message}</p> : null}
+            <Button
+              loading={apply.isPending}
+              onClick={() => {
+                setSubmitted(true);
+                if (!hasErrors) apply.mutate();
+              }}
+            >
+              {apply.isPending ? "Submitting..." : "Submit request"}
+            </Button>
           </div>
         </Card>
       </div>

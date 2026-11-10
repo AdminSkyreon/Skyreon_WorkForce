@@ -40,10 +40,8 @@ def _allocated_for_year(leave_type: LeaveType, year: int, as_of: date | None = N
 
 
 def _validate_accrual(annual: int, mode: LeaveAccrualMode, days_per_month: Decimal) -> None:
-    if mode == LeaveAccrualMode.MONTHLY and days_per_month * 12 > Decimal(annual) and annual > 0:
-        # allow: cap applies at balance time; only block if single month exceeds cap
-        if days_per_month > Decimal(annual):
-            raise BadRequest("Days per month cannot exceed the annual cap")
+    if mode == LeaveAccrualMode.MONTHLY and days_per_month > Decimal(annual):
+        raise BadRequest("Days per month cannot exceed the annual cap")
 
 
 async def working_days(
@@ -65,7 +63,7 @@ async def working_days(
     if half_day:
         if start != end:
             raise BadRequest("Half-day leave must be a single date")
-        return Decimal("0.5")
+        return Decimal("0.5") if days > 0 else Decimal("0")
     return Decimal(days)
 
 
@@ -218,6 +216,10 @@ async def _consume_comp_off(db: AsyncSession, employee_id: UUID, leave_type: Lea
 async def apply_leave(db: AsyncSession, employee: Employee, data: LeaveCreate) -> LeaveRequestOut:
     if not getattr(employee, "allow_leave", True):
         raise BadRequest("This contractor does not have staff leave")
+
+    if data.start_date < date.today():
+        raise BadRequest("Cannot apply leave for a past date")
+    
     leave_type = await db.get(LeaveType, data.leave_type_id)
     if leave_type is None:
         raise NotFound("Leave type not found")

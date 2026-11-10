@@ -749,6 +749,8 @@ async def mark_attendance(db: AsyncSession, employee_id: UUID, data: AttendanceI
 
 
 async def list_attendance(db: AsyncSession, start: date, end: date, employee_id: UUID | None = None) -> list[AttendanceOut]:
+    if end < start:
+        raise BadRequest("End date must be on or after start date")
     stmt = (
         select(AttendanceDay, Employee.name)
         .join(Employee, Employee.id == AttendanceDay.employee_id)

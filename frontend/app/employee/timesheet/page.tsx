@@ -1,36 +1,57 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addDays, format, parseISO, startOfWeek } from "date-fns";
+import { addDays, format, isValid, parseISO, startOfWeek } from "date-fns";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, Input, Label, Modal, Select } from "@/components/ui";
+import { Badge, Button, Card, FieldError, Input, Label, Modal, Select } from "@/components/ui";
+import { toast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { Task, Timesheet } from "@/lib/types";
 import { labels } from "@/lib/utils";
 
 function mondayOf(value: string) {
-  return format(startOfWeek(parseISO(value), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const parsed = parseISO(value);
+  if (!isValid(parsed)) return null;
+  return format(startOfWeek(parsed, { weekStartsOn: 1 }), "yyyy-MM-dd");
+}
+
+function isValidNonNegative(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const num = Number(trimmed);
+  return Number.isFinite(num) && num >= 0;
 }
 
 export default function TimesheetPage() {
   const qc = useQueryClient();
   const [view, setView] = useState<"week" | "month">("week");
-  const [week, setWeek] = useState(mondayOf(format(new Date(), "yyyy-MM-dd")));
+  const [week, setWeek] = useState(mondayOf(format(new Date(), "yyyy-MM-dd"))!);
   const now = new Date();
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState(String(now.getMonth() + 1));
-  const [open, setOpen] = useState(false);
-  const [addRow, setAddRow] = useState(false);
   const [extraIds, setExtraIds] = useState<string[]>([]);
-  const [taskId, setTaskId] = useState("");
-  const [manualTaskMode, setManualTaskMode] = useState<"existing" | "new">("existing");
+  const [cellError, setCellError] = useState("");
+
+  // Add task row modal state
+  const [addRow, setAddRow] = useState(false);
   const [rowTaskMode, setRowTaskMode] = useState<"existing" | "new">("existing");
-  const [newTaskProjectId, setNewTaskProjectId] = useState("");
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskEstimate, setNewTaskEstimate] = useState("8");
+  const [rowTaskId, setRowTaskId] = useState("");
+  const [rowProjectId, setRowProjectId] = useState("");
+  const [rowTitle, setRowTitle] = useState("");
+  const [rowEstimate, setRowEstimate] = useState("8");
+  const [rowSubmitted, setRowSubmitted] = useState(false);
+
+  // Manual entry modal state
+  const [open, setOpen] = useState(false);
+  const [manualTaskMode, setManualTaskMode] = useState<"existing" | "new">("existing");
+  const [manualTaskId, setManualTaskId] = useState("");
+  const [manualProjectId, setManualProjectId] = useState("");
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualEstimate, setManualEstimate] = useState("8");
   const [workDate, setWorkDate] = useState(week);
   const [hours, setHours] = useState("1");
   const [reason, setReason] = useState("");
+  const [manualSubmitted, setManualSubmitted] = useState(false);
 
   const sheet = useQuery({
     queryKey: ["timesheet", week],
@@ -50,56 +71,85 @@ export default function TimesheetPage() {
   const tasks = useQuery({ queryKey: ["my-tasks"], queryFn: () => api<Task[]>("/me/tasks") });
   const projects = useQuery({ queryKey: ["my-projects"], queryFn: () => api<{ id: string; name: string; client_name: string }[]>("/me/projects") });
 
-  async function resolveTaskId(mode: "existing" | "new", selectedId: string) {
-    if (mode === "existing") return selectedId;
-    if (!newTaskProjectId || !newTaskTitle.trim()) {
-      throw new Error("Choose a project and task title");
-    }
-    const created = await api<Task>(`/me/projects/${newTaskProjectId}/tasks`, {
+  async function createInlineTask(projectId: string, title: string, estimate: string) {
+    const created = await api<Task>(`/me/projects/${projectId}/tasks`, {
       method: "POST",
       body: JSON.stringify({
-        title: newTaskTitle.trim(),
-        estimated_hours: newTaskEstimate || "8",
+        title: title.trim(),
+        estimated_hours: estimate.trim() || "0",
         priority: "medium",
       }),
     });
     return created.id;
   }
 
+  function closeAddRowModal() {
+    setAddRow(false);
+    setRowTaskMode("existing");
+    setRowTaskId("");
+    setRowProjectId("");
+    setRowTitle("");
+    setRowEstimate("8");
+    setRowSubmitted(false);
+    addRowTask.reset();
+  }
+
+  function closeManualModal() {
+    setOpen(false);
+    setManualTaskMode("existing");
+    setManualTaskId("");
+    setManualProjectId("");
+    setManualTitle("");
+    setManualEstimate("8");
+    setWorkDate(week);
+    setHours("1");
+    setReason("");
+    setManualSubmitted(false);
+    add.reset();
+  }
+
   const add = useMutation({
     mutationFn: async () => {
-      const id = await resolveTaskId(manualTaskMode, taskId);
+      const id =
+        manualTaskMode === "existing"
+          ? manualTaskId
+          : await createInlineTask(manualProjectId, manualTitle, manualEstimate);
       return api("/me/timesheets/entries", {
         method: "POST",
-        body: JSON.stringify({ task_id: id, work_date: workDate, hours, reason }),
+        body: JSON.stringify({
+          task_id: id,
+          work_date: workDate,
+          hours: hours.trim(),
+          reason: reason.trim(),
+        }),
       });
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["timesheet", week] });
+      void qc.invalidateQueries({ queryKey: ["timesheet"] });
       void qc.invalidateQueries({ queryKey: ["my-tasks"] });
-      setOpen(false);
-      setManualTaskMode("existing");
-      setNewTaskTitle("");
-      setNewTaskProjectId("");
+      toast.success("Time entry added");
+      closeManualModal();
     },
   });
 
   const addRowTask = useMutation({
-    mutationFn: async () => resolveTaskId(rowTaskMode, taskId),
+    mutationFn: async () =>
+      rowTaskMode === "existing"
+        ? rowTaskId
+        : createInlineTask(rowProjectId, rowTitle, rowEstimate),
     onSuccess: (id) => {
       setExtraIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       void qc.invalidateQueries({ queryKey: ["my-tasks"] });
-      setAddRow(false);
-      setRowTaskMode("existing");
-      setTaskId("");
-      setNewTaskTitle("");
-      setNewTaskProjectId("");
+      closeAddRowModal();
     },
   });
   const setDay = useMutation({
     mutationFn: (payload: { task_id: string; work_date: string; hours: string }) =>
       api<Timesheet>("/me/timesheets/day", { method: "PUT", body: JSON.stringify(payload) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["timesheet", week] }),
+    onSuccess: () => {
+      setCellError("");
+      void qc.invalidateQueries({ queryKey: ["timesheet", week] });
+    },
   });
   const [submitNote, setSubmitNote] = useState("");
   const submit = useMutation({
@@ -109,6 +159,7 @@ export default function TimesheetPage() {
       setSubmitNote(
         n > 0 ? `${n} extra day(s) sent for manager approval (weekend/holiday hours).` : "",
       );
+      toast.success("Timesheet submitted");
       void qc.invalidateQueries({ queryKey: ["timesheet", week] });
     },
   });
@@ -118,6 +169,7 @@ export default function TimesheetPage() {
     () => Array.from({ length: 7 }, (_, i) => addDays(parseISO(week), i)),
     [week],
   );
+  const weekEnd = format(days[6], "yyyy-MM-dd");
   const weekLabel = `Week of ${format(days[0], "EEE d MMM")} – ${format(days[6], "EEE d MMM")}`;
   const editable = Boolean(data && !data.locked && data.status !== "submitted");
   const shownIds = new Set([...(data?.rows.map((row) => row.task_id) ?? []), ...extraIds]);
@@ -133,6 +185,60 @@ export default function TimesheetPage() {
           ? "Add hours first"
           : "";
 
+  const rowErrors = {
+    task: rowTaskMode === "existing" && !rowTaskId ? "Select a task" : "",
+    project: rowTaskMode === "new" && !rowProjectId ? "Select a project" : "",
+    title:
+      rowTaskMode === "new"
+        ? !rowTitle.trim()
+          ? "Task title is required"
+          : rowTitle.trim().length > 255
+            ? "Max 255 characters"
+            : ""
+        : "",
+    estimate:
+      rowTaskMode === "new" && !isValidNonNegative(rowEstimate)
+        ? "Estimate must be 0 or greater"
+        : "",
+  };
+  const hasRowErrors = Object.values(rowErrors).some(Boolean);
+
+  const manualHoursNum = Number(hours.trim());
+  const manualDayIndex = days.findIndex((d) => format(d, "yyyy-MM-dd") === workDate);
+  const existingDayTotal =
+    manualDayIndex >= 0 && data?.daily_totals[manualDayIndex] !== undefined
+      ? Number(data.daily_totals[manualDayIndex])
+      : 0;
+  const manualErrors = {
+    task: manualTaskMode === "existing" && !manualTaskId ? "Select a task" : "",
+    project: manualTaskMode === "new" && !manualProjectId ? "Select a project" : "",
+    title:
+      manualTaskMode === "new"
+        ? !manualTitle.trim()
+          ? "Task title is required"
+          : manualTitle.trim().length > 255
+            ? "Max 255 characters"
+            : ""
+        : "",
+    estimate:
+      manualTaskMode === "new" && !isValidNonNegative(manualEstimate)
+        ? "Estimate must be 0 or greater"
+        : "",
+    workDate: !workDate ? "Date is required" : "",
+    hours:
+      !hours.trim() || !Number.isFinite(manualHoursNum) || manualHoursNum <= 0 || manualHoursNum > 24
+        ? "Hours must be between 0.01 and 24"
+        : manualDayIndex >= 0 && existingDayTotal + manualHoursNum > 24
+          ? `Day total cannot exceed 24h (already logged ${existingDayTotal}h)`
+          : "",
+    reason: !reason.trim()
+      ? "Reason is required"
+      : reason.trim().length > 500
+        ? "Max 500 characters"
+        : "",
+  };
+  const hasManualErrors = Object.values(manualErrors).some(Boolean);
+
   function emptyDays() {
     return days.map((day) => ({
       date: format(day, "yyyy-MM-dd"),
@@ -143,6 +249,36 @@ export default function TimesheetPage() {
       is_leave: false,
       exceeds_12h: false,
     }));
+  }
+
+  function handleCellBlur(
+    e: React.FocusEvent<HTMLInputElement>,
+    taskId: string,
+    workDateStr: string,
+    previousHours: string,
+    dayIdx: number,
+  ) {
+    const raw = e.target.value.trim();
+    const nextStr = raw === "" ? "0" : raw;
+    const nextNum = Number(nextStr);
+    const prevNum = Number(previousHours);
+    if (!Number.isFinite(nextNum) || nextNum < 0 || nextNum > 24) {
+      e.target.value = previousHours;
+      setCellError("Hours must be between 0 and 24.");
+      return;
+    }
+    if (nextNum === prevNum) {
+      setCellError("");
+      return;
+    }
+    const dayTotal = data?.daily_totals[dayIdx] !== undefined ? Number(data.daily_totals[dayIdx]) : 0;
+    if (dayTotal - prevNum + nextNum > 24) {
+      e.target.value = previousHours;
+      setCellError(`Total hours for ${workDateStr} cannot exceed 24h.`);
+      return;
+    }
+    setCellError("");
+    setDay.mutate({ task_id: taskId, work_date: workDateStr, hours: nextStr });
   }
 
   return (
@@ -172,7 +308,10 @@ export default function TimesheetPage() {
           <Input
             type="date"
             value={week}
-            onChange={(e) => setWeek(mondayOf(e.target.value))}
+            onChange={(e) => {
+              const nextMonday = mondayOf(e.target.value);
+              if (nextMonday) setWeek(nextMonday);
+            }}
             className="max-w-xs"
           />
         )}
@@ -185,6 +324,8 @@ export default function TimesheetPage() {
         <Button
           variant="outline"
           onClick={() => {
+            setRowSubmitted(false);
+            addRowTask.reset();
             setRowTaskMode(unusedTasks.length ? "existing" : "new");
             setAddRow(true);
           }}
@@ -195,6 +336,9 @@ export default function TimesheetPage() {
         <Button
           variant="outline"
           onClick={() => {
+            setManualSubmitted(false);
+            add.reset();
+            setWorkDate(week);
             setManualTaskMode(tasks.data?.length ? "existing" : "new");
             setOpen(true);
           }}
@@ -256,7 +400,7 @@ export default function TimesheetPage() {
                       <p className="font-semibold">{row.task_title}</p>
                       <p className="text-xs text-ink/50">{row.project_name}</p>
                     </td>
-                    {row.days.map((cell) => (
+                    {row.days.map((cell, dayIdx) => (
                       <td
                         key={cell.date}
                         className={`px-4 py-2 ${
@@ -276,13 +420,10 @@ export default function TimesheetPage() {
                             min="0"
                             max="24"
                             step="0.25"
+                            disabled={setDay.isPending}
                             defaultValue={cell.hours}
                             className="w-20 px-2 py-1"
-                            onBlur={(e) => {
-                              const next = e.target.value || "0";
-                              if (Number(next) === Number(cell.hours)) return;
-                              setDay.mutate({ task_id: row.task_id, work_date: cell.date, hours: next });
-                            }}
+                            onBlur={(e) => handleCellBlur(e, row.task_id, cell.date, cell.hours, dayIdx)}
                           />
                         ) : (
                           cell.hours
@@ -298,21 +439,22 @@ export default function TimesheetPage() {
                       <p className="font-semibold">{task.title}</p>
                       <p className="text-xs text-ink/50">{task.project_name}</p>
                     </td>
-                    {emptyDays().map((cell) => (
+                    {emptyDays().map((cell, dayIdx) => (
                       <td key={cell.date} className="px-4 py-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          max="24"
-                          step="0.25"
-                          defaultValue="0"
-                          className="w-20 px-2 py-1"
-                          onBlur={(e) => {
-                            const next = e.target.value || "0";
-                            if (Number(next) === 0) return;
-                            setDay.mutate({ task_id: task.id, work_date: cell.date, hours: next });
-                          }}
-                        />
+                        {editable ? (
+                          <Input
+                            type="number"
+                            min="0"
+                            max="24"
+                            step="0.25"
+                            disabled={setDay.isPending}
+                            defaultValue="0"
+                            className="w-20 px-2 py-1"
+                            onBlur={(e) => handleCellBlur(e, task.id, cell.date, "0", dayIdx)}
+                          />
+                        ) : (
+                          cell.hours
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -343,31 +485,39 @@ export default function TimesheetPage() {
         <p>Amber cell = holiday, approved leave, or over 12 hours.</p>
       </div>
       )}
+      {cellError ? <p className="text-sm text-red-700">{cellError}</p> : null}
       {setDay.error ? <p className="text-sm text-red-700">{setDay.error.message}</p> : null}
 
-      <Modal open={addRow} title="Add task row" onClose={() => setAddRow(false)}>
+      <Modal open={addRow} title="Add task row" onClose={closeAddRowModal}>
         <div className="space-y-3">
           <div className="flex rounded-full bg-mist p-1 text-sm font-semibold">
             <button
               type="button"
               className={`flex-1 rounded-full px-3 py-1.5 ${rowTaskMode === "existing" ? "bg-white text-ink shadow-sm" : "text-ink/60"}`}
-              onClick={() => setRowTaskMode("existing")}
-              disabled={!unusedTasks.length}
+              onClick={() => {
+                setRowSubmitted(false);
+                setRowTaskMode("existing");
+              }}
+              disabled={!unusedTasks.length || addRowTask.isPending}
             >
               Existing task
             </button>
             <button
               type="button"
               className={`flex-1 rounded-full px-3 py-1.5 ${rowTaskMode === "new" ? "bg-white text-ink shadow-sm" : "text-ink/60"}`}
-              onClick={() => setRowTaskMode("new")}
+              onClick={() => {
+                setRowSubmitted(false);
+                setRowTaskMode("new");
+              }}
+              disabled={addRowTask.isPending}
             >
               New task
             </button>
           </div>
           {rowTaskMode === "existing" ? (
-            <>
+            <div>
               <Label>Task</Label>
-              <Select value={taskId} onChange={(e) => setTaskId(e.target.value)}>
+              <Select disabled={addRowTask.isPending} value={rowTaskId} onChange={(e) => setRowTaskId(e.target.value)}>
                 <option value="">Select task</option>
                 {unusedTasks.map((task) => (
                   <option key={task.id} value={task.id}>
@@ -375,12 +525,13 @@ export default function TimesheetPage() {
                   </option>
                 ))}
               </Select>
-            </>
+              {rowSubmitted && <FieldError message={rowErrors.task} />}
+            </div>
           ) : (
             <>
               <div>
                 <Label>Project</Label>
-                <Select value={newTaskProjectId} onChange={(e) => setNewTaskProjectId(e.target.value)}>
+                <Select disabled={addRowTask.isPending} value={rowProjectId} onChange={(e) => setRowProjectId(e.target.value)}>
                   <option value="">Select project</option>
                   {projects.data?.map((project) => (
                     <option key={project.id} value={project.id}>
@@ -389,42 +540,56 @@ export default function TimesheetPage() {
                     </option>
                   ))}
                 </Select>
+                {rowSubmitted && <FieldError message={rowErrors.project} />}
               </div>
               <div>
                 <Label>Task title</Label>
-                <Input value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder="What you worked on" />
+                <Input maxLength={255} disabled={addRowTask.isPending} value={rowTitle} onChange={(e) => setRowTitle(e.target.value)} placeholder="What you worked on" />
+                {rowSubmitted && <FieldError message={rowErrors.title} />}
               </div>
               <div>
                 <Label>Estimate (hours)</Label>
-                <Input value={newTaskEstimate} onChange={(e) => setNewTaskEstimate(e.target.value)} />
+                <Input type="number" min="0" step="0.25" disabled={addRowTask.isPending} value={rowEstimate} onChange={(e) => setRowEstimate(e.target.value)} />
+                {rowSubmitted && <FieldError message={rowErrors.estimate} />}
               </div>
             </>
           )}
           {addRowTask.error ? <p className="text-sm text-red-700">{addRowTask.error.message}</p> : null}
           <Button
             className="mt-2"
-            disabled={rowTaskMode === "existing" ? !taskId : !newTaskProjectId || !newTaskTitle.trim()}
-            onClick={() => addRowTask.mutate()}
+            loading={addRowTask.isPending}
+            onClick={() => {
+              setRowSubmitted(true);
+              if (!hasRowErrors) addRowTask.mutate();
+            }}
           >
-            Add row
+            {addRowTask.isPending ? "Adding..." : "Add row"}
           </Button>
         </div>
       </Modal>
 
-      <Modal open={open} title="Manual time entry" onClose={() => setOpen(false)}>
+      <Modal open={open} title="Manual time entry" onClose={closeManualModal}>
         <div className="space-y-3">
           <div className="flex rounded-full bg-mist p-1 text-sm font-semibold">
             <button
               type="button"
               className={`flex-1 rounded-full px-3 py-1.5 ${manualTaskMode === "existing" ? "bg-white text-ink shadow-sm" : "text-ink/60"}`}
-              onClick={() => setManualTaskMode("existing")}
+              onClick={() => {
+                setManualSubmitted(false);
+                setManualTaskMode("existing");
+              }}
+              disabled={add.isPending}
             >
               Existing task
             </button>
             <button
               type="button"
               className={`flex-1 rounded-full px-3 py-1.5 ${manualTaskMode === "new" ? "bg-white text-ink shadow-sm" : "text-ink/60"}`}
-              onClick={() => setManualTaskMode("new")}
+              onClick={() => {
+                setManualSubmitted(false);
+                setManualTaskMode("new");
+              }}
+              disabled={add.isPending}
             >
               New task
             </button>
@@ -432,7 +597,7 @@ export default function TimesheetPage() {
           {manualTaskMode === "existing" ? (
             <div>
               <Label>Task</Label>
-              <Select value={taskId} onChange={(e) => setTaskId(e.target.value)}>
+              <Select disabled={add.isPending} value={manualTaskId} onChange={(e) => setManualTaskId(e.target.value)}>
                 <option value="">Select task</option>
                 {tasks.data?.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -440,12 +605,13 @@ export default function TimesheetPage() {
                   </option>
                 ))}
               </Select>
+              {manualSubmitted && <FieldError message={manualErrors.task} />}
             </div>
           ) : (
             <>
               <div>
                 <Label>Project</Label>
-                <Select value={newTaskProjectId} onChange={(e) => setNewTaskProjectId(e.target.value)}>
+                <Select disabled={add.isPending} value={manualProjectId} onChange={(e) => setManualProjectId(e.target.value)}>
                   <option value="">Select project</option>
                   {projects.data?.map((project) => (
                     <option key={project.id} value={project.id}>
@@ -454,40 +620,44 @@ export default function TimesheetPage() {
                     </option>
                   ))}
                 </Select>
+                {manualSubmitted && <FieldError message={manualErrors.project} />}
               </div>
               <div>
                 <Label>Task title</Label>
-                <Input value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} placeholder="What you worked on" />
+                <Input maxLength={255} disabled={add.isPending} value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} placeholder="What you worked on" />
+                {manualSubmitted && <FieldError message={manualErrors.title} />}
               </div>
               <div>
                 <Label>Estimate (hours)</Label>
-                <Input value={newTaskEstimate} onChange={(e) => setNewTaskEstimate(e.target.value)} />
+                <Input type="number" min="0" step="0.25" disabled={add.isPending} value={manualEstimate} onChange={(e) => setManualEstimate(e.target.value)} />
+                {manualSubmitted && <FieldError message={manualErrors.estimate} />}
               </div>
             </>
           )}
           <div>
             <Label>Date</Label>
-            <Input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+            <Input type="date" min={week} max={weekEnd} disabled={add.isPending} value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+            {manualSubmitted && <FieldError message={manualErrors.workDate} />}
           </div>
           <div>
             <Label>Hours</Label>
-            <Input value={hours} onChange={(e) => setHours(e.target.value)} />
+            <Input type="number" min="0.01" max="24" step="0.25" disabled={add.isPending} value={hours} onChange={(e) => setHours(e.target.value)} />
+            {manualSubmitted && <FieldError message={manualErrors.hours} />}
           </div>
           <div>
             <Label>Reason (required)</Label>
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this was entered manually" />
+            <Input maxLength={500} disabled={add.isPending} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this was entered manually" />
+            {manualSubmitted && <FieldError message={manualErrors.reason} />}
           </div>
           {add.error ? <p className="text-sm text-red-700">{add.error.message}</p> : null}
           <Button
             loading={add.isPending}
-            onClick={() => add.mutate()}
-            disabled={
-              !reason.trim() ||
-              !hours ||
-              (manualTaskMode === "existing" ? !taskId : !newTaskProjectId || !newTaskTitle.trim())
-            }
+            onClick={() => {
+              setManualSubmitted(true);
+              if (!hasManualErrors) add.mutate();
+            }}
           >
-            Add entry
+            {add.isPending ? "Adding..." : "Add entry"}
           </Button>
         </div>
       </Modal>

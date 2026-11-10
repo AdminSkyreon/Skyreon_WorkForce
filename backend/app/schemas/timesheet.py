@@ -1,18 +1,21 @@
 from datetime import date as Date
 from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.models.timesheet import TimesheetStatus
 from app.schemas.common import ORMModel
+
+Reason500 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 class ManualEntryRequest(BaseModel):
     task_id: UUID
     work_date: Date
     hours: Decimal = Field(gt=0, le=24)
-    reason: str = Field(min_length=1, max_length=500)
+    reason: Reason500
 
 
 class SetDayHoursRequest(BaseModel):
@@ -22,7 +25,7 @@ class SetDayHoursRequest(BaseModel):
 
 
 class TimesheetReviewRequest(BaseModel):
-    comment: str = ""
+    comment: str = Field(default="", max_length=500)
 
 
 class DayCell(BaseModel):
