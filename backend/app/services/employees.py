@@ -223,21 +223,43 @@ async def update_employee(db: AsyncSession, employee_id: UUID, data: EmployeeUpd
     return await get_employee(db, employee.id)
 
 
-async def deactivate_employee(db: AsyncSession, employee_id: UUID) -> Employee:
-    employee = await get_employee(db, employee_id)
+async def _assert_no_assigned_assets(db: AsyncSession, employee_id: UUID) -> None:
     held = (
         await db.execute(
-            select(CompanyAsset).where(
-                CompanyAsset.assigned_to_id == employee_id, CompanyAsset.status == AssetStatus.ASSIGNED
+            select(CompanyAsset.id)
+            .where(
+                CompanyAsset.assigned_to_id == employee_id,
+                CompanyAsset.status == AssetStatus.ASSIGNED,
             )
+            .limit(1)
         )
-    ).scalars().all()
-    if held:
+    ).scalar_one_or_none()
+    if held is not None:
         raise BadRequest("Return assigned assets before deactivating this person")
-    employee.status = EmployeeStatus.INACTIVE
-    employee.user.is_active = False
+
+
+async def _set_employee_active(db: AsyncSession, employee: Employee, active: bool) -> Employee:
+    target_status = EmployeeStatus.ACTIVE if active else EmployeeStatus.INACTIVE
+    if employee.status == target_status and employee.user.is_active is active:
+        return employee  # Idempotent no-op: avoids unnecessary DB writes
+
+    if not active:
+        await _assert_no_assigned_assets(db, employee.id)
+
+    employee.status = target_status
+    employee.user.is_active = active
     await db.commit()
-    return await get_employee(db, employee.id)
+    return employee
+
+
+async def activate_employee(db: AsyncSession, employee_id: UUID) -> Employee:
+    employee = await get_employee(db, employee_id)
+    return await _set_employee_active(db, employee, True)
+
+
+async def deactivate_employee(db: AsyncSession, employee_id: UUID) -> Employee:
+    employee = await get_employee(db, employee_id)
+    return await _set_employee_active(db, employee, False)
 
 
 async def reset_password(db: AsyncSession, employee_id: UUID, temporary_password: str) -> Employee:

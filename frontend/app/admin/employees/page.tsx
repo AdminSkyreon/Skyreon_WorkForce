@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { DepartmentSelect, DesignationSelect, LocationSelect } from "@/components/org-pickers";
 import type { Employee, Page } from "@/lib/types";
+import { toast } from "@/components/toast";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -122,12 +123,31 @@ export default function EmployeesPage() {
     },
   });
 
-  const deactivate = useMutation({
-    mutationFn: (id: string) => api(`/admin/employees/${id}/deactivate`, { method: "POST" }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["employees"] });
-    },
-  });
+const toggleStatus = useMutation({
+  mutationFn: ({ id, nextStatus }: { id: string; nextStatus: StatusTab }) =>
+    api<Employee>(
+      `/admin/employees/${id}/${nextStatus === "active" ? "activate" : "deactivate"}`,
+      { method: "POST" },
+    ),
+  onSuccess: (updated, { nextStatus }) => {
+    // Remove row immediately from the current status tab cache so there is zero UI lag
+    qc.setQueryData<Page<Employee>>(["employees", debouncedSearch, tab], (old) =>
+      old
+        ? {
+            ...old,
+            items: old.items.filter((item) => item.id !== updated.id),
+            total: Math.max(0, old.total - 1),
+          }
+        : old,
+    );
+    void qc.invalidateQueries({ queryKey: ["employees"] });
+    void qc.invalidateQueries({ queryKey: ["employee", updated.id] });
+    toast.success(
+      nextStatus === "active" ? "Employee activated" : "Employee deactivated",
+      `${updated.name} is now ${nextStatus}.`,
+    );
+  },
+});
 
   const update = useMutation({
     mutationFn: () =>
@@ -264,11 +284,18 @@ export default function EmployeesPage() {
                       <Button variant="ghost" onClick={() => setResetId(emp.id)}>
                         Reset password
                       </Button>
-                      {emp.status === "active" && (
-                        <Button variant="ghost" onClick={() => deactivate.mutate(emp.id)}>
-                          Deactivate
+                        <Button
+                          variant="ghost"
+                          loading={toggleStatus.isPending && toggleStatus.variables?.id === emp.id}
+                          onClick={() =>
+                            toggleStatus.mutate({
+                              id: emp.id,
+                              nextStatus: emp.status === "active" ? "inactive" : "active",
+                            })
+                          }
+                        >
+                          {emp.status === "active" ? "Deactivate" : "Activate"}
                         </Button>
-                      )}
                       </>
                     )}
                   </div>

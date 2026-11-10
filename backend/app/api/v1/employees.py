@@ -60,6 +60,13 @@ async def deactivate_employee(
     employee = await employee_service.deactivate_employee(db, employee_id)
     return employee_service.to_employee_out(employee)
 
+@router.post("/{employee_id}/activate", response_model=EmployeeOut)
+async def activate_employee(
+    employee_id: UUID, _admin: HrAdminUser, db: DbSession
+) -> EmployeeOut:
+    employee = await employee_service.activate_employee(db, employee_id)
+    return employee_service.to_employee_out(employee)
+
 
 @router.post("/{employee_id}/reset-password", response_model=EmployeeOut)
 async def reset_password(
@@ -67,3 +74,5 @@ async def reset_password(
 ) -> EmployeeOut:
     employee = await employee_service.reset_password(db, employee_id, payload.temporary_password)
     return employee_service.to_employee_out(employee)
+
+
