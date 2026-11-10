@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
     }
     return [
       {
+        source: "/health",
+        destination: `${apiProxyTarget}/health`,
+      },
+      {
         source: "/api/v1/:path*",
         destination: `${apiProxyTarget}/api/v1/:path*`,
       },

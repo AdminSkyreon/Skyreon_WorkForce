@@ -24,7 +24,12 @@ export class ApiError extends Error {
   }
 }
 
-type ApiOptions = RequestInit & { skipAuth?: boolean; _retryCount?: number };
+type ApiOptions = RequestInit & {
+  skipAuth?: boolean;
+  silent?: boolean;
+  _retryCount?: number;
+  _authRetried?: boolean;
+};
 
 function humanizeErrorMessage(status: number, detail: string): string {
   if (status === 401) {
@@ -81,7 +86,7 @@ function isTokenExpired(token: string | null): boolean {
     const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(window.atob(base64));
     // Buffer by 30 seconds so we never send a token that expires mid-flight
-    return Date.now() >= (payload.exp * 1000) - 30_000;
+    return Date.now() >= payload.exp * 1000 - 30_000;
   } catch {
     return true;
   }
@@ -115,6 +120,30 @@ function releaseSlot(): void {
 
 const AUTH_TIMEOUT_MS = 45_000;
 let refreshPromise: Promise<User | null> | null = null;
+let lastRefreshFailureStatus: number | null = null;
+let rateLimitedUntil = 0;
+let warmedUp = false;
+
+function getRetryDelayMs(res: Response): number {
+  const parsedRetry = Number(res.headers.get("Retry-After"));
+  const baseSeconds = Number.isFinite(parsedRetry) && parsedRetry > 0 ? Math.min(Math.max(parsedRetry, 3), 15) : 6;
+  const jitterMs = Math.floor(Math.random() * 1_200);
+  return baseSeconds * 1000 + jitterMs;
+}
+
+export function getLastRefreshFailureStatus(): number | null {
+  return lastRefreshFailureStatus;
+}
+
+export async function warmUpBackend(): Promise<void> {
+  if (warmedUp) return;
+  warmedUp = true;
+  try {
+    await fetch(`${API_URL}/health`, { method: "GET", cache: "no-store" });
+  } catch {
+    // Ignore wake-up ping errors silently
+  }
+}
 
 export async function refreshAccess(): Promise<User | null> {
   if (refreshPromise) {
@@ -132,8 +161,9 @@ export async function refreshAccess(): Promise<User | null> {
         credentials: "include",
         signal: controller.signal,
       });
-    } catch (_err) {
+    } catch {
       accessToken = null;
+      lastRefreshFailureStatus = 0;
       return null;
     } finally {
       window.clearTimeout(timeout);
@@ -141,16 +171,22 @@ export async function refreshAccess(): Promise<User | null> {
 
     if (!res.ok) {
       accessToken = null;
+      lastRefreshFailureStatus = res.status;
+      if (res.status === 429) {
+        rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + getRetryDelayMs(res));
+      }
       return null;
     }
 
     try {
       const body = (await res.json()) as { access_token: string; user: User };
       accessToken = body.access_token;
+      lastRefreshFailureStatus = null;
       syncPortalCookies(body.user);
       return body.user;
     } catch {
       accessToken = null;
+      lastRefreshFailureStatus = 500;
       return null;
     }
   })().finally(() => {
@@ -164,7 +200,15 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   // Preemptive check: If auth is required, verify token validity BEFORE dispatching
   if (!options.skipAuth) {
     if (isTokenExpired(accessToken)) {
-      await refreshAccess();
+      const refreshedUser = await refreshAccess();
+      if (!refreshedUser) {
+        const failureStatus = lastRefreshFailureStatus === 429 ? 429 : 401;
+        const msg = humanizeErrorMessage(failureStatus, "");
+        if (failureStatus === 429 && !options.silent) {
+          toast.error("Action Failed", msg);
+        }
+        throw new ApiError(failureStatus, msg);
+      }
     } else if (refreshPromise) {
       await refreshPromise;
     }
@@ -179,6 +223,12 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   }
 
   let res: Response;
+  const method = (options.method || "GET").toUpperCase();
+
+  // Respect active rate-limit cooldown for GET requests before hitting the network
+  if (method === "GET" && Date.now() < rateLimitedUntil) {
+    await new Promise((r) => setTimeout(r, rateLimitedUntil - Date.now()));
+  }
 
   // Acquire concurrency slot to throttle parallel bursts
   await acquireSlot();
@@ -188,30 +238,35 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
       headers,
       credentials: "include",
     });
-  } catch (_err) {
+  } catch {
     const errorMsg = "Unable to connect to the server. Please check your internet connection.";
-    toast.error("Connection Error", errorMsg);
+    if (!options.silent) {
+      toast.error("Connection Error", errorMsg);
+    }
     throw new ApiError(0, errorMsg);
   } finally {
     releaseSlot();
   }
 
-  // Graceful 429 backoff using Retry-After header (or minimum 6 seconds)
-  if (res.status === 429 && (options._retryCount ?? 0) < 1) {
-    const retryAfter = Number(res.headers.get("Retry-After")) || 6;
-    await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    return api<T>(path, { ...options, _retryCount: (options._retryCount ?? 0) + 1 });
+  // Record global cooldown on any 429; only auto-retry idempotent GET requests (never POST auth mutations)
+  if (res.status === 429) {
+    const delayMs = getRetryDelayMs(res);
+    rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + delayMs);
+    if (method === "GET" && (options._retryCount ?? 0) < 1) {
+      await new Promise((r) => setTimeout(r, Math.max(0, rateLimitedUntil - Date.now())));
+      return api<T>(path, { ...options, _retryCount: (options._retryCount ?? 0) + 1 });
+    }
   }
 
-  // Fallback 401 handling
-  if (res.status === 401 && !path.startsWith("/auth/")) {
+  // Fallback 401 handling (at most once per call)
+  if (res.status === 401 && !path.startsWith("/auth/") && !options._authRetried) {
     const user = await refreshAccess();
-    if (user) return api<T>(path, options);
+    if (user) return api<T>(path, { ...options, _authRetried: true });
   }
 
   if (!res.ok) {
     const parsed = await parseError(res);
-    if (!path.includes("/auth/refresh")) {
+    if (!options.silent && !path.includes("/auth/refresh")) {
       toast.error("Action Failed", parsed.detail);
     }
     throw parsed;
@@ -221,13 +276,19 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   return res.json() as Promise<T>;
 }
 
-export async function downloadPdf(path: string, filename: string) {
+export async function downloadPdf(path: string, filename: string, _authRetried = false) {
   if (isTokenExpired(accessToken)) {
-    await refreshAccess();
+    const refreshedUser = await refreshAccess();
+    if (!refreshedUser) {
+      const failureStatus = lastRefreshFailureStatus === 429 ? 429 : 401;
+      const msg = humanizeErrorMessage(failureStatus, "");
+      toast.error("Action Failed", msg);
+      throw new ApiError(failureStatus, msg);
+    }
   }
   const headers = new Headers();
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  
+
   await acquireSlot();
   let res: Response;
   try {
@@ -236,9 +297,9 @@ export async function downloadPdf(path: string, filename: string) {
     releaseSlot();
   }
 
-  if (res.status === 401) {
+  if (res.status === 401 && !_authRetried) {
     const user = await refreshAccess();
-    if (user) return downloadPdf(path, filename);
+    if (user) return downloadPdf(path, filename, true);
   }
   if (!res.ok) throw await parseError(res);
   const blob = await res.blob();

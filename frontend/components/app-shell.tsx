@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeftRight, Bell, LogOut, Menu, X, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { refreshAccess } from "@/lib/api";
+import { getAccessToken, refreshAccess } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { isStaff } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,9 @@ export function AppShell({
     setSwitching(true);
     setNavigationLoading(true);
     try {
-      await refreshAccess();
+      if (!getAccessToken()) {
+        await refreshAccess();
+      }
       router.push(href);
     } finally {
       setSwitching(false);

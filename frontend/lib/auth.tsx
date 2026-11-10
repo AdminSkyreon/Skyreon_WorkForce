@@ -2,8 +2,9 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, refreshAccess, setAccessToken } from "./api";
+import { api, getLastRefreshFailureStatus, refreshAccess, setAccessToken } from "./api";
 import { clearPortalCookies, hasSessionCookie, syncPortalCookies } from "./portal-cookies";
+import { toast } from "@/components/toast";
 import type { User } from "./types";
 
 type AuthContextValue = {
@@ -39,13 +40,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, 45_000);
 
     void refreshAccess()
-      .then(async (refreshed) => {
+      .then((refreshed) => {
         if (!active) return;
         if (!refreshed) {
           setAccessToken(null);
           setUser(null);
           clearPortalCookies();
-          await api("/auth/logout", { method: "POST" }).catch(() => undefined);
+          if (getLastRefreshFailureStatus() === 429) {
+            toast.error(
+              "Server Busy",
+              "The server is temporarily rate-limited. Please wait 30 seconds before signing in.",
+            );
+          }
           const path = window.location.pathname;
           if (path.startsWith("/admin") || path.startsWith("/employee")) {
             window.location.replace("/login");
@@ -84,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return body.user;
       },
       logout: async () => {
-        await api("/auth/logout", { method: "POST" });
+        await api("/auth/logout", { method: "POST", skipAuth: true, silent: true }).catch(() => undefined);
         setAccessToken(null);
         setUser(null);
         clearPortalCookies();

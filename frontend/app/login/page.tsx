@@ -7,7 +7,9 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { SkyreonLogo } from "@/components/skyreon-logo";
 import { Button, FieldError, Input, Label, Modal } from "@/components/ui";
+import { getLastRefreshFailureStatus, warmUpBackend } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { hasSessionCookie } from "@/lib/portal-cookies";
 
 const schema = z.object({
   email: z.string().email(),
@@ -16,11 +18,17 @@ const schema = z.object({
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, user } = useAuth();
+  const { login, user, loading } = useAuth();
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
+
+  useEffect(() => {
+    if (!loading && !user && !hasSessionCookie() && getLastRefreshFailureStatus() === null) {
+      void warmUpBackend();
+    }
+  }, [loading, user]);
 
   useEffect(() => {
     if (!user) return;
