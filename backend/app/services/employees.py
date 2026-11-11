@@ -95,7 +95,7 @@ async def list_reports(db: AsyncSession, manager_id: UUID) -> list[Employee]:
             selectinload(Employee.payroll),
             selectinload(Employee.reporting_manager),
         )
-        .where(Employee.reporting_manager_id == manager_id)
+        .where(Employee.reporting_manager_id == manager_id, Employee.status == EmployeeStatus.ACTIVE)
         .order_by(Employee.name)
     )
     return list(result.scalars().all())
@@ -115,6 +115,13 @@ async def get_employee(db: AsyncSession, employee_id: UUID) -> Employee:
     employee = result.scalar_one_or_none()
     if employee is None:
         raise NotFound("Employee not found")
+    return employee
+
+
+async def get_active_employee(db: AsyncSession, employee_id: UUID, label: str = "Employee") -> Employee:
+    employee = await get_employee(db, employee_id)
+    if employee.status != EmployeeStatus.ACTIVE:
+        raise BadRequest(f"{label} must be an active employee")
     return employee
 
 
@@ -139,7 +146,7 @@ async def create_employee(db: AsyncSession, data: EmployeeCreate) -> Employee:
     if taken.scalar_one_or_none():
         raise Conflict("Employee code already in use")
     if data.reporting_manager_id:
-        await get_employee(db, data.reporting_manager_id)
+        await get_active_employee(db, data.reporting_manager_id, "Reporting manager")
 
     if existing:
         user = existing
@@ -196,7 +203,7 @@ async def update_employee(db: AsyncSession, employee_id: UUID, data: EmployeeUpd
     if "reporting_manager_id" in payload and payload["reporting_manager_id"]:
         if payload["reporting_manager_id"] == employee.id:
             raise BadRequest("Employee cannot report to themselves")
-        await get_employee(db, payload["reporting_manager_id"])
+        await get_active_employee(db, payload["reporting_manager_id"], "Reporting manager")
     if payload.get("engagement") == Engagement.STAFF:
         payload.setdefault("allow_leave", True)
         payload.setdefault("contract_monthly_fee", Decimal("0.00"))

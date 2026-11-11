@@ -59,8 +59,8 @@ export default function AdminLeavePage() {
   const requests = useQuery({ queryKey: ["leave-admin"], queryFn: () => api<LeaveRequest[]>("/leave") });
   const types = useQuery({ queryKey: ["leave-types"], queryFn: () => api<LeaveType[]>("/leave-types") });
   const employees = useQuery({
-    queryKey: ["employees-all"],
-    queryFn: () => api<Page<Employee>>("/admin/employees?page_size=100"),
+    queryKey: ["employees", "active-options"],
+    queryFn: () => api<Page<Employee>>("/admin/employees?status=active&page_size=100"),
   });
 
   const review = useMutation({

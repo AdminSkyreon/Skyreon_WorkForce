@@ -9,7 +9,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -142,7 +142,9 @@ async def list_payments(db: AsyncSession, year: int, month: int) -> list[Project
 
 
 async def mark_salary_paid(db: AsyncSession, user: User, employee_id: UUID, data: SalaryPayIn) -> SalaryPaymentOut:
+
     employee = await db.get(Employee, employee_id)
+
     if employee is None:
         raise NotFound("Employee not found")
     if employee.engagement != Engagement.STAFF:
@@ -626,6 +628,15 @@ async def close_job(db: AsyncSession, job_id: UUID) -> JobOut:
     return await get_job(db, job_id)
 
 
+async def delete_job(db: AsyncSession, job_id: UUID) -> None:
+    row = await db.get(Job, job_id)
+    if row is None:
+        raise NotFound("Job not found")
+    await db.execute(delete(Applicant).where(Applicant.job_id == job_id))
+    await db.delete(row)
+    await db.commit()
+
+
 def _job_out(row: Job) -> JobOut:
     return JobOut(
         id=row.id,
@@ -672,6 +683,14 @@ async def move_applicant(db: AsyncSession, applicant_id: UUID, stage: ApplicantS
     await db.commit()
     await db.refresh(row)
     return ApplicantOut(id=row.id, job_id=row.job_id, name=row.name, email=row.email, stage=row.stage, note=row.note)
+
+
+async def delete_applicant(db: AsyncSession, applicant_id: UUID) -> None:
+    row = await db.get(Applicant, applicant_id)
+    if row is None:
+        raise NotFound("Applicant not found")
+    await db.delete(row)
+    await db.commit()
 
 
 async def list_requirements(db: AsyncSession) -> list[DocumentRequirementOut]:
@@ -727,7 +746,9 @@ async def set_document(db: AsyncSession, employee_id: UUID, requirement_id: UUID
 
 
 async def mark_attendance(db: AsyncSession, employee_id: UUID, data: AttendanceIn) -> AttendanceOut:
+
     employee = await db.get(Employee, employee_id)
+
     if employee is None:
         raise NotFound("Employee not found")
     row = (
@@ -926,9 +947,13 @@ async def assign_asset(db: AsyncSession, asset_id: UUID, employee_id: UUID) -> A
     row = await db.get(CompanyAsset, asset_id)
     if row is None:
         raise NotFound("Asset not found")
+
     employee = await db.get(Employee, employee_id)
+
     if employee is None:
         raise NotFound("Employee not found")
+    if employee.status != EmployeeStatus.ACTIVE:
+        raise BadRequest("Cannot assign assets to an inactive employee")
     row.assigned_to_id = employee_id
     row.status = AssetStatus.ASSIGNED
     row.acknowledged = False
@@ -961,7 +986,9 @@ async def acknowledge_asset(db: AsyncSession, employee: Employee, asset_id: UUID
 
 async def my_assets(db: AsyncSession, employee_id: UUID) -> list[AssetOut]:
     rows = (await db.execute(select(CompanyAsset).where(CompanyAsset.assigned_to_id == employee_id))).scalars().all()
+
     employee = await db.get(Employee, employee_id)
+
     return [_asset_out(row, employee.name if employee else None) for row in rows]
 
 

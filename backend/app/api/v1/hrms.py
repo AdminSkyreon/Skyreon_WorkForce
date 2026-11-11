@@ -152,6 +152,11 @@ async def close_job(job_id: UUID, _admin: AdminUser, db: DbSession) -> JobOut:
     return await hrms_service.close_job(db, job_id)
 
 
+@router.delete("/jobs/{job_id}", status_code=204)
+async def delete_job(job_id: UUID, _admin: AdminUser, db: DbSession) -> None:
+    await hrms_service.delete_job(db, job_id)
+
+
 @router.post("/jobs/{job_id}/applicants", response_model=ApplicantOut, status_code=201)
 async def add_applicant(job_id: UUID, payload: ApplicantIn, _admin: AdminUser, db: DbSession) -> ApplicantOut:
     return await hrms_service.add_applicant(db, job_id, payload)
@@ -169,6 +174,11 @@ async def move_applicant(
     applicant_id: UUID, _admin: AdminUser, db: DbSession, stage: ApplicantStage = Query(...)
 ) -> ApplicantOut:
     return await hrms_service.move_applicant(db, applicant_id, stage)
+
+
+@router.delete("/applicants/{applicant_id}", status_code=204)
+async def delete_applicant(applicant_id: UUID, _admin: AdminUser, db: DbSession) -> None:
+    await hrms_service.delete_applicant(db, applicant_id)
 
 
 @router.get("/document-requirements", response_model=list[DocumentRequirementOut])

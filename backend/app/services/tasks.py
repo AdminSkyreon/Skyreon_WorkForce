@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequest, Forbidden, NotFound
+from app.models.employee import Employee, EmployeeStatus
 from app.models.project import ProjectMember
 from app.models.task import Task, TaskStatus
 from app.models.time_entry import TaskTimeEntry
@@ -59,13 +60,14 @@ def to_task_out(task: Task, logged_seconds: int, remaining_seconds: int) -> Task
 
 async def _assert_member(db: AsyncSession, project_id: UUID, employee_id: UUID) -> None:
     result = await db.execute(
-        select(ProjectMember).where(
+        select(ProjectMember.id).join(Employee, Employee.id == ProjectMember.employee_id).where(
             ProjectMember.project_id == project_id,
             ProjectMember.employee_id == employee_id,
+            Employee.status == EmployeeStatus.ACTIVE,
         )
     )
     if result.scalar_one_or_none() is None:
-        raise BadRequest("Assignee must be a project team member")
+        raise BadRequest("Assignee must be an active project team member")
 
 
 async def get_task(db: AsyncSession, task_id: UUID) -> Task:

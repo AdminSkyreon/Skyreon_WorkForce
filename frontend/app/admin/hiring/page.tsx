@@ -19,6 +19,7 @@ export default function HiringPage() {
   const [applicantFor, setApplicantFor] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [editingApplicant, setEditingApplicant] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: "job" | "applicant"; id: string; label: string } | null>(null);
   const [title, setTitle] = useState("");
   const [department, setDepartment] = useState("");
   const [locationId, setLocationId] = useState("");
@@ -62,6 +63,11 @@ export default function HiringPage() {
     updateApplicant.reset();
   }
 
+  function closeDeleteModal() {
+    setConfirmDelete(null);
+    deleteItem.reset();
+  }
+
   const create = useMutation({
     mutationFn: () =>
       api("/jobs", {
@@ -96,6 +102,13 @@ export default function HiringPage() {
       closeJobModal();
     },
   });
+  const closeJob = useMutation({
+    mutationFn: (id: string) => api(`/jobs/${id}/close`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["jobs"] });
+      toast.success("Role closed");
+    },
+  });
   const addApplicant = useMutation({
     mutationFn: () =>
       api(`/jobs/${applicantFor}/applicants`, {
@@ -125,6 +138,15 @@ export default function HiringPage() {
       api(`/applicants/${id}/stage?stage=${stage}`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
   });
+  const deleteItem = useMutation({
+    mutationFn: ({ kind, id }: { kind: "job" | "applicant"; id: string }) =>
+      api(kind === "job" ? `/jobs/${id}` : `/applicants/${id}`, { method: "DELETE" }),
+    onSuccess: (_, vars) => {
+      void qc.invalidateQueries({ queryKey: ["jobs"] });
+      toast.success(vars.kind === "job" ? "Role deleted" : "Applicant deleted");
+      closeDeleteModal();
+    },
+  });
 
   const savingJob = editingJob ? updateJob.isPending : create.isPending;
   const savingApplicant = editingApplicant ? updateApplicant.isPending : addApplicant.isPending;
@@ -150,6 +172,7 @@ export default function HiringPage() {
         </Button>
       </div>
       {move.error ? <p className="text-sm text-red-700">{move.error.message}</p> : null}
+      {closeJob.error ? <p className="text-sm text-red-700">{closeJob.error.message}</p> : null}
       {jobs.data?.map((job) => (
         <Card key={job.id}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -173,6 +196,25 @@ export default function HiringPage() {
                   setOpen(true);
                 }}
               />
+              {job.is_open ? (
+                <Button
+                  variant="ghost"
+                  loading={closeJob.isPending && closeJob.variables === job.id}
+                  onClick={() => closeJob.mutate(job.id)}
+                >
+                  Close
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                className="text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  deleteItem.reset();
+                  setConfirmDelete({ kind: "job", id: job.id, label: job.title });
+                }}
+              >
+                Delete
+              </Button>
             </div>
           </div>
           <div className="mt-4 space-y-2">
@@ -205,6 +247,16 @@ export default function HiringPage() {
                       </option>
                     ))}
                   </Select>
+                  <Button
+                    variant="ghost"
+                    className="text-red-700 hover:bg-red-50"
+                    onClick={() => {
+                      deleteItem.reset();
+                      setConfirmDelete({ kind: "applicant", id: applicant.id, label: applicant.name });
+                    }}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
             ))}
@@ -312,6 +364,31 @@ export default function HiringPage() {
               ? savingApplicant ? "Saving..." : "Save changes"
               : savingApplicant ? "Adding..." : "Add"}
           </Button>
+        </div>
+      </Modal>
+      <Modal
+        open={!!confirmDelete}
+        title={confirmDelete?.kind === "job" ? "Delete role" : "Delete applicant"}
+        onClose={closeDeleteModal}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-ink/70">
+            Are you sure you want to delete <strong>{confirmDelete?.label}</strong>?
+            {confirmDelete?.kind === "job" ? " All applicants under this role will also be removed." : ""}
+          </p>
+          {deleteItem.error ? <p className="text-sm text-red-700">{deleteItem.error.message}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={deleteItem.isPending} onClick={closeDeleteModal}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteItem.isPending}
+              onClick={() => confirmDelete && deleteItem.mutate({ kind: confirmDelete.kind, id: confirmDelete.id })}
+            >
+              {deleteItem.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

@@ -32,8 +32,8 @@ export default function ProjectDetailPage() {
     queryFn: () => api<Task[]>(`/admin/projects/${params.id}/tasks`),
   });
   const employees = useQuery({
-    queryKey: ["employees-all"],
-    queryFn: () => api<Page<Employee>>("/admin/employees?page_size=100"),
+    queryKey: ["employees", "active-options"],
+    queryFn: () => api<Page<Employee>>("/admin/employees?status=active&page_size=100"),
   });
 
   const createTask = useMutation({
@@ -291,7 +291,7 @@ export default function ProjectDetailPage() {
             <Label>Assignee</Label>
             <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
               <option value="">Unassigned</option>
-              {p?.members.map((emp) => (
+              {p?.members.filter((emp) => emp.status === "active" || emp.id === assignee).map((emp) => (
                 <option key={emp.id} value={emp.id}>
                   {emp.name}
                 </option>

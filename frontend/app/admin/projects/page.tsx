@@ -79,8 +79,8 @@ export default function ProjectsPage() {
     },
   });
   const employees = useQuery({
-    queryKey: ["employees-all"],
-    queryFn: () => api<Page<Employee>>("/admin/employees?page_size=100"),
+    queryKey: ["employees", "active-options"],
+    queryFn: () => api<Page<Employee>>("/admin/employees?status=active&page_size=100"),
   });
 
   function closeModal() {

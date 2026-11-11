@@ -6,14 +6,14 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import Conflict, Forbidden, NotFound, BadRequest
+from app.core.exceptions import BadRequest, Conflict, Forbidden, NotFound
 from app.models.employee import Employee
 from app.models.project import Project, ProjectMember, ProjectStatus
 from app.models.task import Task
 from app.models.time_entry import TaskTimeEntry
 from app.schemas.employee import EmployeeOut
 from app.schemas.project import ProjectCreate, ProjectFinancials, ProjectOut, ProjectUpdate
-from app.services.employees import get_employee, to_employee_out
+from app.services.employees import get_active_employee, to_employee_out
 
 
 def _project_load_options():
@@ -183,25 +183,24 @@ async def list_my_projects(db: AsyncSession, employee_id: UUID) -> list[Project]
 
 async def _set_members(db: AsyncSession, project: Project, member_ids: list[UUID]) -> None:
     unique_ids = list(dict.fromkeys([*member_ids, project.manager_id]))
-    for emp_id in unique_ids:
-        await get_employee(db, emp_id)
     existing = (
         await db.execute(select(ProjectMember).where(ProjectMember.project_id == project.id))
     ).scalars().all()
     existing_ids = {m.employee_id for m in existing}
     desired = set(unique_ids)
+    for emp_id in desired - existing_ids:
+        await get_active_employee(db, emp_id, "Team member")
+        db.add(ProjectMember(project_id=project.id, employee_id=emp_id))
     for member in existing:
         if member.employee_id not in desired:
             await db.delete(member)
-    for emp_id in desired - existing_ids:
-        db.add(ProjectMember(project_id=project.id, employee_id=emp_id))
 
 
 async def create_project(db: AsyncSession, data: ProjectCreate) -> Project:
     dup = await db.execute(select(Project).where(Project.project_code == data.project_code))
     if dup.scalar_one_or_none():
         raise Conflict("Project code already in use")
-    await get_employee(db, data.manager_id)
+    await get_active_employee(db, data.manager_id, "Project manager")
     project = Project(
         name=data.name,
         client_name=data.client_name,
@@ -228,7 +227,7 @@ async def update_project(db: AsyncSession, project_id: UUID, data: ProjectUpdate
     payload = data.model_dump(exclude_unset=True)
     member_ids = payload.pop("member_ids", None)
     if "manager_id" in payload:
-        await get_employee(db, payload["manager_id"])
+        await get_active_employee(db, payload["manager_id"], "Project manager")
     for key, value in payload.items():
         setattr(project, key, value)
     if project.end_date is not None and project.end_date < project.start_date:
