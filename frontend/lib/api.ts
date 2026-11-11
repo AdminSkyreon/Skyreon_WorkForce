@@ -3,6 +3,11 @@ import type { User } from "./types";
 import { toast } from "@/components/toast";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const DIRECT_API_URL =
+  process.env.NEXT_PUBLIC_DIRECT_API_URL ||
+  (typeof window !== "undefined" && window.location.hostname === "skyreon-portal.vercel.app"
+    ? "https://skyreon-api.onrender.com"
+    : "");
 
 let accessToken: string | null = null;
 
@@ -135,13 +140,31 @@ export function getLastRefreshFailureStatus(): number | null {
   return lastRefreshFailureStatus;
 }
 
-export async function warmUpBackend(): Promise<void> {
-  if (warmedUp) return;
+export async function warmUpBackend(force = false): Promise<void> {
+  if (!DIRECT_API_URL) return;
+  if (warmedUp && !force) return;
   warmedUp = true;
   try {
-    await fetch(`${API_URL}/health`, { method: "GET", cache: "no-store" });
+    // Hit Render directly from the browser IP to avoid Vercel's shared-IP hibernate rate limit
+    await fetch(`${DIRECT_API_URL}/health`, { method: "GET", mode: "no-cors", cache: "no-store" });
   } catch {
     // Ignore wake-up ping errors silently
+  }
+}
+
+async function fetchRefreshToken(): Promise<Response | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+  try {
+    return await fetch(`${API_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      signal: controller.signal,
+    });
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
@@ -151,22 +174,24 @@ export async function refreshAccess(): Promise<User | null> {
   }
 
   refreshPromise = (async () => {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-        signal: controller.signal,
-      });
-    } catch {
+    let res = await fetchRefreshToken();
+    if (!res) {
       accessToken = null;
       lastRefreshFailureStatus = 0;
       return null;
-    } finally {
-      window.clearTimeout(timeout);
+    }
+
+    if (res.status === 429 || res.status >= 502) {
+      const delayMs = res.status === 429 ? getRetryDelayMs(res) : 5_000;
+      rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + delayMs);
+      void warmUpBackend(true);
+      await new Promise((r) => setTimeout(r, delayMs));
+      res = await fetchRefreshToken();
+      if (!res) {
+        accessToken = null;
+        lastRefreshFailureStatus = 0;
+        return null;
+      }
     }
 
     if (!res.ok) {
@@ -202,9 +227,12 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     if (isTokenExpired(accessToken)) {
       const refreshedUser = await refreshAccess();
       if (!refreshedUser) {
-        const failureStatus = lastRefreshFailureStatus === 429 ? 429 : 401;
-        const msg = humanizeErrorMessage(failureStatus, "");
-        if (failureStatus === 429 && !options.silent) {
+        const failureStatus = lastRefreshFailureStatus ?? 401;
+        const msg =
+          failureStatus === 0
+            ? "Unable to connect to the server. Please check your internet connection."
+            : humanizeErrorMessage(failureStatus, "");
+        if ((failureStatus === 429 || failureStatus === 0 || failureStatus >= 500) && !options.silent) {
           toast.error("Action Failed", msg);
         }
         throw new ApiError(failureStatus, msg);
@@ -252,6 +280,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   if (res.status === 429) {
     const delayMs = getRetryDelayMs(res);
     rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + delayMs);
+    void warmUpBackend(true);
     if (method === "GET" && (options._retryCount ?? 0) < 1) {
       await new Promise((r) => setTimeout(r, Math.max(0, rateLimitedUntil - Date.now())));
       return api<T>(path, { ...options, _retryCount: (options._retryCount ?? 0) + 1 });
@@ -262,6 +291,11 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   if (res.status === 401 && !path.startsWith("/auth/") && !options._authRetried) {
     const user = await refreshAccess();
     if (user) return api<T>(path, { ...options, _authRetried: true });
+    if (lastRefreshFailureStatus === 429) {
+      const msg = humanizeErrorMessage(429, "");
+      if (!options.silent) toast.error("Action Failed", msg);
+      throw new ApiError(429, msg);
+    }
   }
 
   if (!res.ok) {

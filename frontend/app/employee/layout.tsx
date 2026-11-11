@@ -19,15 +19,16 @@ import {
 } from "lucide-react";
 import { AppShell, type NavLink, type NavSection } from "@/components/app-shell";
 import { PageSkeleton } from "@/components/page-skeleton";
+import { SessionRecovery } from "@/components/session-recovery";
 import { useAuth } from "@/lib/auth";
 
 export default function EmployeeLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionError, retrySession, logout } = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (loading) return;
+    if (loading || sessionError) return;
     if (!user) window.location.replace("/login");
-  }, [user, loading, router]);
+  }, [user, loading, sessionError, router]);
 
   const nav = useMemo(() => {
     const sections: NavSection[] = [
@@ -77,6 +78,9 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
         <PageSkeleton />
       </div>
     );
+  }
+  if (sessionError) {
+    return <SessionRecovery reason={sessionError} onRetry={retrySession} onLogout={logout} />;
   }
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-paper text-ink/50">Taking you to sign in…</div>;
 
