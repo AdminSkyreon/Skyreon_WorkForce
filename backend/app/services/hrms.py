@@ -878,6 +878,11 @@ async def my_reviews(db: AsyncSession, employee_id: UUID) -> list[ReviewOut]:
 
 
 async def create_asset(db: AsyncSession, data: AssetIn) -> AssetOut:
+    taken = (
+        await db.execute(select(CompanyAsset.id).where(CompanyAsset.asset_tag == data.asset_tag).limit(1))
+    ).scalar_one_or_none()
+    if taken is not None:
+        raise Conflict("That asset tag is already in use")
     row = CompanyAsset(name=data.name, asset_tag=data.asset_tag, category=data.category, note=data.note)
     db.add(row)
     await db.commit()

@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Badge, Button, Card, IconButton, Input, Label, Modal, Select } from "@/components/ui";
+import { Badge, Button, Card, FieldError, IconButton, Input, Label, Modal, Select } from "@/components/ui";
+import { toast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { CompanyAsset, Employee, Page } from "@/lib/types";
 
@@ -10,37 +11,79 @@ export default function AssetsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<CompanyAsset | null>(null);
+  const [submitted, setSubmitted] = useState(false);
   const [form, setForm] = useState({ name: "", asset_tag: "", category: "laptop", note: "" });
   const assets = useQuery({ queryKey: ["assets"], queryFn: () => api<CompanyAsset[]>("/assets") });
   const people = useQuery({
     queryKey: ["employees", "assets"],
     queryFn: () => api<Page<Employee>>("/admin/employees?status=active&page_size=100"),
   });
+
+  const errors = {
+    name: !form.name.trim() ? "Asset name is required" : form.name.trim().length > 255 ? "Max 255 characters" : "",
+    asset_tag: !form.asset_tag.trim() ? "Asset tag is required" : form.asset_tag.trim().length > 80 ? "Max 80 characters" : "",
+  };
+  const hasErrors = Object.values(errors).some(Boolean);
+
+  function closeModal() {
+    setOpen(false);
+    setEditing(null);
+    setSubmitted(false);
+    create.reset();
+    update.reset();
+  }
+
   const create = useMutation({
-    mutationFn: () => api("/assets", { method: "POST", body: JSON.stringify(form) }),
+    mutationFn: () =>
+      api("/assets", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name.trim(),
+          asset_tag: form.asset_tag.trim(),
+          category: form.category.trim() || "laptop",
+          note: form.note.trim(),
+        }),
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["assets"] });
-      setOpen(false);
-      setEditing(null);
+      toast.success("Asset added");
+      closeModal();
     },
   });
   const update = useMutation({
-    mutationFn: () => api(`/assets/${editing?.id}`, { method: "PATCH", body: JSON.stringify(form) }),
+    mutationFn: () =>
+      api(`/assets/${editing?.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: form.name.trim(),
+          asset_tag: form.asset_tag.trim(),
+          category: form.category.trim() || "laptop",
+          note: form.note.trim(),
+        }),
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["assets"] });
-      setOpen(false);
-      setEditing(null);
+      toast.success("Asset updated");
+      closeModal();
     },
   });
   const assign = useMutation({
     mutationFn: ({ id, employeeId }: { id: string; employeeId: string }) =>
       api(`/assets/${id}/assign?employee_id=${employeeId}`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["assets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Asset assigned");
+    },
   });
   const ret = useMutation({
     mutationFn: (id: string) => api(`/assets/${id}/return`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["assets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Asset returned");
+    },
   });
+
+  const isSaving = editing ? update.isPending : create.isPending;
 
   return (
     <div className="space-y-4">
@@ -48,6 +91,9 @@ export default function AssetsPage() {
         <p className="text-sm text-ink/60">Assign a laptop or phone, wait for acknowledgement, return it before deactivating someone.</p>
         <Button
           onClick={() => {
+            create.reset();
+            update.reset();
+            setSubmitted(false);
             setEditing(null);
             setForm({ name: "", asset_tag: "", category: "laptop", note: "" });
             setOpen(true);
@@ -56,6 +102,8 @@ export default function AssetsPage() {
           Add asset
         </Button>
       </div>
+      {assign.error ? <p className="text-sm text-red-700">{assign.error.message}</p> : null}
+      {ret.error ? <p className="text-sm text-red-700">{ret.error.message}</p> : null}
       {assets.data?.map((asset) => (
         <Card key={asset.id} className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-center">
           <div>
@@ -72,6 +120,9 @@ export default function AssetsPage() {
             <IconButton
               label="Edit asset"
               onClick={() => {
+                create.reset();
+                update.reset();
+                setSubmitted(false);
                 setEditing(asset);
                 setForm({
                   name: asset.name,
@@ -85,13 +136,18 @@ export default function AssetsPage() {
             {asset.status === "assigned" ? (
               <Button
                 variant="outline"
+                disabled={ret.isPending}
                 loading={ret.isPending && ret.variables === asset.id}
                 onClick={() => ret.mutate(asset.id)}
               >
                 {ret.isPending && ret.variables === asset.id ? "Returning..." : "Return"}
               </Button>
             ) : (
-              <Select onChange={(e) => e.target.value && assign.mutate({ id: asset.id, employeeId: e.target.value })}>
+              <Select
+                disabled={assign.isPending && assign.variables?.id === asset.id}
+                value=""
+                onChange={(e) => e.target.value && assign.mutate({ id: asset.id, employeeId: e.target.value })}
+              >
                 <option value="">Assign…</option>
                 {people.data?.items.map((emp) => (
                   <option key={emp.id} value={emp.id}>
@@ -103,28 +159,46 @@ export default function AssetsPage() {
           </div>
         </Card>
       ))}
-      <Modal open={open} title={editing ? "Edit asset" : "New asset"} onClose={() => { setOpen(false); setEditing(null); }}>
+      <Modal open={open} title={editing ? "Edit asset" : "New asset"} onClose={closeModal}>
         <div className="grid gap-3">
           <div>
             <Label>Name</Label>
-            <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
+            <Input
+              maxLength={255}
+              disabled={isSaving}
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            {submitted && <FieldError message={errors.name} />}
           </div>
           <div>
             <Label>Tag</Label>
-            <Input value={form.asset_tag} onChange={(e) => setForm((p) => ({ ...p, asset_tag: e.target.value }))} />
+            <Input
+              maxLength={80}
+              disabled={isSaving}
+              value={form.asset_tag}
+              onChange={(e) => setForm((p) => ({ ...p, asset_tag: e.target.value }))}
+            />
+            {submitted && <FieldError message={errors.asset_tag} />}
           </div>
           {(editing ? update.error : create.error) ? (
             <p className="text-sm text-red-700">{(editing ? update.error : create.error)?.message}</p>
           ) : null}
           <Button
-            loading={editing ? update.isPending : create.isPending}
-            onClick={() => (editing ? update.mutate() : create.mutate())}
+            loading={isSaving}
+            onClick={() => {
+              setSubmitted(true);
+              if (!hasErrors) {
+                if (editing) update.mutate();
+                else create.mutate();
+              }
+            }}
           >
             {editing
-              ? update.isPending
+              ? isSaving
                 ? "Saving..."
                 : "Save changes"
-              : create.isPending
+              : isSaving
                 ? "Saving..."
                 : "Save"}
           </Button>

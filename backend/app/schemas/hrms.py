@@ -3,12 +3,17 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import BaseModel, EmailStr, Field, StringConstraints, model_validator
 
 from app.models.hrms import ApplicantStage, AssetStatus, AttendanceMark, BillStatus, VendorCategory
 from app.schemas.common import ORMModel
 
 VendorName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+NonEmpty255 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+NonEmpty120 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+Tag80 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+Category40 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+Dept120 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]
 
 
 class PaymentIn(BaseModel):
@@ -149,24 +154,31 @@ class CompanyMonthOut(ORMModel):
 
 
 class JobIn(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
-    department: str = ""
+    title: NonEmpty255
+    department: Dept120 = ""
     location_id: UUID | None = None
     hiring_manager_id: UUID | None = None
     opened_on: date
-    note: str = ""
+    note: str = Field(default="", max_length=1000)
 
 
 class ApplicantIn(BaseModel):
-    name: str = Field(min_length=1)
-    email: str
-    note: str = ""
+    name: NonEmpty255
+    email: EmailStr
+    note: str = Field(default="", max_length=1000)
 
 
 class ApplicantUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1)
-    email: str | None = None
-    note: str | None = None
+    name: NonEmpty255 | None = None
+    email: EmailStr | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def reject_nulls(self) -> "ApplicantUpdate":
+        for field in ("name", "email", "note"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class ApplicantOut(ORMModel):
@@ -179,12 +191,19 @@ class ApplicantOut(ORMModel):
 
 
 class JobUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    department: str | None = None
+    title: NonEmpty255 | None = None
+    department: Dept120 | None = None
     location_id: UUID | None = None
     hiring_manager_id: UUID | None = None
     opened_on: date | None = None
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def reject_nulls(self) -> "JobUpdate":
+        for field in ("title", "department", "opened_on", "note"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class JobOut(ORMModel):
@@ -234,9 +253,15 @@ class AttendanceOut(ORMModel):
 
 
 class ReviewCycleIn(BaseModel):
-    name: str
+    name: NonEmpty120
     start_date: date
     end_date: date
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "ReviewCycleIn":
+        if self.end_date < self.start_date:
+            raise ValueError("End date cannot be earlier than start date")
+        return self
 
 
 class ReviewCycleOut(ORMModel):
@@ -249,7 +274,7 @@ class ReviewCycleOut(ORMModel):
 
 class ReviewIn(BaseModel):
     employee_id: UUID
-    summary: str = ""
+    summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
 class ReviewOut(ORMModel):
@@ -263,17 +288,24 @@ class ReviewOut(ORMModel):
 
 
 class AssetIn(BaseModel):
-    name: str
-    asset_tag: str
-    category: str = "laptop"
-    note: str = ""
+    name: NonEmpty255
+    asset_tag: Tag80
+    category: Category40 = "laptop"
+    note: str = Field(default="", max_length=500)
 
 
 class AssetUpdate(BaseModel):
-    name: str | None = None
-    asset_tag: str | None = None
-    category: str | None = None
-    note: str | None = None
+    name: NonEmpty255 | None = None
+    asset_tag: Tag80 | None = None
+    category: Category40 | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def reject_nulls(self) -> "AssetUpdate":
+        for field in ("name", "asset_tag", "category", "note"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class AssetOut(ORMModel):
