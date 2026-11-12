@@ -1,3 +1,4 @@
+import asyncio
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
@@ -5,6 +6,7 @@ from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from uuid import UUID
+from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
@@ -385,7 +387,7 @@ async def render_year_pdf(report: FinanceYear, db: AsyncSession) -> bytes:
         bottomMargin=12 * mm,
     )
     styles = _styles()
-    company = profile.legal_name if profile else "Skyreon"
+    company = escape(profile.legal_name if profile and profile.legal_name else "Skyreon")
     header = [_logo_flowable(36 * mm), Paragraph(f"<b>{company}</b><br/>Year report · {report.year}", styles["Heading2"])]
     story = [Table([header], colWidths=[50 * mm, 220 * mm]), Spacer(1, 8)]
     summary = Table(
@@ -491,5 +493,5 @@ async def render_year_pdf(report: FinanceYear, db: AsyncSession) -> bytes:
             styles["Small"],
         )
     )
-    doc.build(story)
+    await asyncio.to_thread(doc.build, story)
     return buffer.getvalue()

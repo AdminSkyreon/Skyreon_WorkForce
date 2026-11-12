@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Path, Query
 from fastapi.responses import Response
 
 from app.core.deps import AdminUser, CurrentEmployee, CurrentUser, DbSession, SuperAdminUser
@@ -105,10 +105,10 @@ async def payslip_pdf(
 
 @router.get("/me/payslips/{year}/{month}/pdf")
 async def my_payslip_pdf(
-    year: int,
-    month: int,
     employee: CurrentEmployee,
     db: DbSession,
+    year: int = Path(..., ge=2000, le=2100),
+    month: int = Path(..., ge=1, le=12),
 ) -> Response:
     register = await payroll_service.build_register(db, year, month)
     if not register.closed:
@@ -126,7 +126,10 @@ async def my_payslip_pdf(
 
 @router.get("/me/payslips/{year}/{month}", response_model=PayrollRegister)
 async def my_payslip_meta(
-    year: int, month: int, employee: CurrentEmployee, db: DbSession
+    employee: CurrentEmployee,
+    db: DbSession,
+    year: int = Path(..., ge=2000, le=2100),
+    month: int = Path(..., ge=1, le=12),
 ) -> PayrollRegister:
     register = await payroll_service.build_register(db, year, month)
     if not register.closed:

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -58,17 +58,29 @@ async def issue_tokens(db: AsyncSession, user: User) -> tuple[str, str]:
     return access, raw
 
 
+async def revoke_all_user_tokens(db: AsyncSession, user_id: UUID) -> None:
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+    )
+
+
 async def rotate_refresh(db: AsyncSession, raw_token: str) -> tuple[str, str, User]:
+    token_digest = hash_token(raw_token)
     result = await db.execute(
         select(RefreshToken)
         .options(selectinload(RefreshToken.user).selectinload(User.employee))
-        .where(
-            RefreshToken.token_hash == hash_token(raw_token),
-            RefreshToken.revoked_at.is_(None),
-        )
+        .where(RefreshToken.token_hash == token_digest)
+        .with_for_update()
     )
     matched = result.scalar_one_or_none()
     if matched is None:
+        raise Unauthorized("Invalid refresh token")
+    if matched.revoked_at is not None:
+        # Refresh token reuse detected: revoke all active sessions for this user
+        await revoke_all_user_tokens(db, matched.user_id)
+        await db.commit()
         raise Unauthorized("Invalid refresh token")
     now = datetime.now(UTC)
     if matched.expires_at < now:
@@ -118,6 +130,7 @@ async def change_password(
             raise BadRequest("Current password is incorrect")
     user.password_hash = hash_password(new_password)
     user.must_change_password = False
+    await revoke_all_user_tokens(db, user.id)
     await db.commit()
 
 

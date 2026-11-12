@@ -39,8 +39,8 @@ class SalaryPayIn(BaseModel):
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
     paid_date: date
-    reference: str = ""
-    amount: Decimal | None = None
+    reference: str = Field(default="", max_length=255)
+    amount: Decimal | None = Field(default=None, ge=0, le=Decimal("9999999999.99"))
 
 
 class SalaryPaymentOut(ORMModel):
@@ -82,10 +82,10 @@ class ContractorRegister(ORMModel):
 class ContractorPayIn(BaseModel):
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
-    amount: Decimal | None = None
+    amount: Decimal | None = Field(default=None, ge=0, le=Decimal("9999999999.99"))
     paid_date: date
-    reference: str = ""
-    deduction: Decimal = Decimal("0.00")
+    reference: str = Field(default="", max_length=255)
+    deduction: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
 
 
 class VendorBillIn(BaseModel):

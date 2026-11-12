@@ -238,11 +238,19 @@ async def employee_dashboard(db: AsyncSession, employee: Employee) -> EmployeeDa
             )
         ).scalar_one()
     if project_hat:
+        managed_member_ids = (
+            select(ProjectMember.employee_id)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .where(Project.manager_id == employee.id)
+        )
         pending_team_timesheets = (
             await db.execute(
                 select(func.count())
                 .select_from(TimesheetWeek)
-                .where(TimesheetWeek.status == TimesheetStatus.SUBMITTED)
+                .where(
+                    TimesheetWeek.status == TimesheetStatus.SUBMITTED,
+                    TimesheetWeek.employee_id.in_(managed_member_ids),
+                )
             )
         ).scalar_one()
         today = date.today()

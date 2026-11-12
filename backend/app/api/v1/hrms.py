@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 from uuid import UUID
 
@@ -95,7 +96,7 @@ async def contractor_statement(
     if line is None:
         return Response(status_code=404, content=b"Statement available after payment is marked")
     return Response(
-        content=hrms_service.contractor_statement_pdf(line, year, month),
+        content=await asyncio.to_thread(hrms_service.contractor_statement_pdf, line, year, month),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="contractor-{line.employee_code}-{year}-{month:02d}.pdf"'},
     )

@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import BadRequest, Conflict, Forbidden, NotFound
 from app.models.billing import ProjectInvoice
 from app.models.employee import Employee, EmployeeStatus, Engagement, PayType
+from app.models.location import Location
 from app.models.hrms import (
     Applicant,
     ApplicantStage,
@@ -375,6 +376,8 @@ def _vendor_gst(amount: Decimal, gst_percent: Decimal | None, gst_amount: Decima
 
 
 async def create_bill(db: AsyncSession, user: User, data: VendorBillIn) -> VendorBillOut:
+    if data.project_id and await db.get(Project, data.project_id) is None:
+        raise NotFound("Project not found")
     year = data.bill_date.year
     month = data.bill_date.month
     gst_amount = _vendor_gst(data.amount, data.gst_percent, data.gst_amount)
@@ -581,6 +584,10 @@ async def mark_claim_paid(db: AsyncSession, user: User, claim_id: UUID) -> Reimb
 
 
 async def create_job(db: AsyncSession, data: JobIn) -> JobOut:
+    if data.location_id and await db.get(Location, data.location_id) is None:
+        raise NotFound("Location not found")
+    if data.hiring_manager_id and await db.get(Employee, data.hiring_manager_id) is None:
+        raise NotFound("Hiring manager not found")
     row = Job(
         title=data.title,
         department=data.department,
@@ -613,7 +620,12 @@ async def update_job(db: AsyncSession, job_id: UUID, data: JobUpdate) -> JobOut:
     row = await db.get(Job, job_id)
     if row is None:
         raise NotFound("Job not found")
-    for key, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    if payload.get("location_id") and await db.get(Location, payload["location_id"]) is None:
+        raise NotFound("Location not found")
+    if payload.get("hiring_manager_id") and await db.get(Employee, payload["hiring_manager_id"]) is None:
+        raise NotFound("Hiring manager not found")
+    for key, value in payload.items():
         setattr(row, key, value)
     await db.commit()
     return await get_job(db, job_id)
@@ -729,6 +741,10 @@ async def employee_documents(db: AsyncSession, employee_id: UUID) -> list[Employ
 
 
 async def set_document(db: AsyncSession, employee_id: UUID, requirement_id: UUID, provided: bool, note: str = "") -> list[EmployeeDocumentOut]:
+    if await db.get(Employee, employee_id) is None:
+        raise NotFound("Employee not found")
+    if await db.get(DocumentRequirement, requirement_id) is None:
+        raise NotFound("Document requirement not found")
     row = (
         await db.execute(
             select(EmployeeDocument).where(

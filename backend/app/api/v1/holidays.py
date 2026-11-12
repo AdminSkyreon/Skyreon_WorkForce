@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.core.deps import AdminUser, CurrentUser, DbSession
 from app.schemas.holiday import HolidayCreate, HolidayOut, HolidayUpdate
@@ -14,7 +14,7 @@ admin_router = APIRouter(prefix="/admin/holidays", tags=["holidays"])
 async def list_holidays(
     _user: CurrentUser,
     db: DbSession,
-    year: int | None = None,
+    year: int | None = Query(default=None, ge=2000, le=2100),
     location_id: UUID | None = None,
 ) -> list[HolidayOut]:
     return await holiday_service.list_holidays(db, year, location_id)

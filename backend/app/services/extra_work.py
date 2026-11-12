@@ -60,14 +60,15 @@ def to_out(row: ExtraWorkDay) -> ExtraWorkOut:
     )
 
 
-async def _load(db: AsyncSession, row_id: UUID) -> ExtraWorkDay:
-    row = (
-        await db.execute(
-            select(ExtraWorkDay)
-            .options(selectinload(ExtraWorkDay.employee))
-            .where(ExtraWorkDay.id == row_id)
-        )
-    ).scalar_one_or_none()
+async def _load(db: AsyncSession, row_id: UUID, *, for_update: bool = False) -> ExtraWorkDay:
+    stmt = (
+        select(ExtraWorkDay)
+        .options(selectinload(ExtraWorkDay.employee))
+        .where(ExtraWorkDay.id == row_id)
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    row = (await db.execute(stmt)).scalar_one_or_none()
     if row is None:
         raise NotFound("Extra work record not found")
     return row
@@ -256,7 +257,7 @@ async def _add_extra_work_pay(db: AsyncSession, employee_id: UUID, year: int, mo
 async def approve(
     db: AsyncSession, user: User, row_id: UUID, data: ExtraWorkApprove
 ) -> ExtraWorkOut:
-    row = await _load(db, row_id)
+    row = await _load(db, row_id, for_update=True)
     if row.status != ExtraWorkStatus.PENDING:
         raise BadRequest("Only pending extra work can be approved")
     if user.employee and row.employee_id == user.employee.id:

@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
+    def validate_production_security(self) -> None:
+        if self.cookie_secure and (
+            self.jwt_secret == "change-me-to-a-long-random-string" or len(self.jwt_secret) < 32
+        ):
+            raise RuntimeError(
+                "Insecure JWT_SECRET: set a random secret of at least 32 characters in production."
+            )
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -1,7 +1,7 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.core.deps import CurrentEmployee, CurrentUser, DbSession
 from app.schemas.dashboard import EmployeeDashboard
@@ -98,8 +98,8 @@ async def my_timesheet(
 async def my_timesheet_month(
     employee: CurrentEmployee,
     db: DbSession,
-    year: int,
-    month: int,
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
 ) -> list[TimesheetOut]:
     return await timesheet_service.my_month(db, employee, year, month)
 
@@ -179,7 +179,7 @@ async def cancel_leave(
 async def my_balances(
     employee: CurrentEmployee,
     db: DbSession,
-    year: int | None = None,
+    year: int | None = Query(default=None, ge=2000, le=2100),
 ) -> list[LeaveBalanceOut]:
     return await leave_service.balances_for(db, employee.id, year or date.today().year)
 

@@ -1,3 +1,4 @@
+import asyncio
 from calendar import monthrange
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
@@ -5,6 +6,7 @@ from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from uuid import UUID
+from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
@@ -28,6 +30,7 @@ from app.models.user import User, is_super_admin
 from app.schemas.payroll import PayrollDetailsIn, PayrollDetailsOut, PayrollLine, PayrollRegister
 from app.services.audit import log_audit
 from app.services.company import get_profile
+from app.services.dates import monday_of
 from app.services.leave import working_days
 from app.services.reimbursements import approved_for_month
 
@@ -104,6 +107,7 @@ async def _approved_hours(db: AsyncSession, employee_id: UUID, start: date, end:
     )
     if not weeks:
         return Decimal("0.00")
+    approved_weeks = {w.week_start for w in weeks}
     start_dt = datetime.combine(start, time.min, tzinfo=UTC_TZ)
     end_dt = datetime.combine(end + timedelta(days=1), time.min, tzinfo=UTC_TZ)
     total = Decimal("0.00")
@@ -118,7 +122,8 @@ async def _approved_hours(db: AsyncSession, employee_id: UUID, start: date, end:
         )
     ).scalars().all()
     for entry in entries:
-        total += Decimal(entry.duration_seconds) / Decimal(3600)
+        if monday_of(entry.start_time.astimezone(UTC_TZ).date()) in approved_weeks:
+            total += Decimal(entry.duration_seconds) / Decimal(3600)
     return _money(total)
 
 
@@ -278,7 +283,16 @@ async def build_register(
         register = PayrollRegister.model_validate_json(period.snapshot_json)
         register.closed = True
         if location_id:
-            register.lines = [line for line in register.lines if True]
+            location = await db.get(Location, location_id)
+            if location is None:
+                raise NotFound("Location not found")
+            register.location_name = location.name
+            register.lines = [line for line in register.lines if line.location_name == location.name]
+            register.total_hours = sum((line.hours for line in register.lines), Decimal("0.00"))
+            register.total_leave_days = sum((line.leave_days for line in register.lines), Decimal("0.00"))
+            register.total_gross = sum((line.gross_pay for line in register.lines), Decimal("0.00"))
+            register.total_tax = sum((line.tax_amount for line in register.lines), Decimal("0.00"))
+            register.total_pay = sum((line.net_pay for line in register.lines), Decimal("0.00"))
         return register
     register = await _compute_register(db, year, month, location_id)
     register.closed = bool(period and period.status == PayrollPeriodStatus.CLOSED)
@@ -479,10 +493,14 @@ def _signature_flowable(image_b64: str):
     if not image_b64:
         return Paragraph("________________", getSampleStyleSheet()["Normal"])
     raw = image_b64.split(",", 1)[-1]
+    if len(raw) > 2_800_000:
+        return Paragraph("________________", getSampleStyleSheet()["Normal"])
     try:
         import base64
 
-        data = base64.b64decode(raw)
+        data = base64.b64decode(raw, validate=True)
+        if len(data) > 2_000_000:
+            return Paragraph("________________", getSampleStyleSheet()["Normal"])
         return Image(BytesIO(data), width=40 * mm, height=16 * mm, kind="proportional")
     except Exception:
         return Paragraph("________________", getSampleStyleSheet()["Normal"])
@@ -506,26 +524,32 @@ def _amount_words(amount: Decimal, currency: str) -> str:
             return two(n)
         return f"{ones[n // 100]} Hundred {two(n % 100)}".strip()
 
-    whole = int(amount)
-    if whole == 0:
-        words = "Zero"
-    else:
-        crore, rem = divmod(whole, 10000000)
+    def indian_words(n: int) -> str:
+        if n == 0:
+            return "Zero"
+        crore, rem = divmod(n, 10000000)
         lakh, rem = divmod(rem, 100000)
         thousand, rem = divmod(rem, 1000)
         parts = []
         if crore:
-            parts.append(f"{three(crore)} Crore")
+            crore_text = indian_words(crore) if crore >= 1000 else three(crore)
+            parts.append(f"{crore_text} Crore")
         if lakh:
             parts.append(f"{three(lakh)} Lakh")
         if thousand:
             parts.append(f"{three(thousand)} Thousand")
         if rem:
             parts.append(three(rem))
-        words = " ".join(parts)
-    paise = int((amount - Decimal(whole)) * 100)
+        return " ".join(parts)
+
+    negative = amount < 0
+    abs_amount = abs(amount)
+    whole = int(abs_amount)
+    words = indian_words(whole)
+    paise = min(99, max(0, int(((abs_amount - Decimal(whole)) * 100).quantize(Decimal("1")))))
     suffix = f" and {two(paise)} Paise" if paise else ""
-    return f"{currency} {words}{suffix} Only"
+    prefix = "Minus " if negative else ""
+    return f"{currency} {prefix}{words}{suffix} Only"
 
 
 async def render_register_pdf(register: PayrollRegister, db: AsyncSession | None = None) -> bytes:
@@ -540,9 +564,9 @@ async def render_register_pdf(register: PayrollRegister, db: AsyncSession | None
         bottomMargin=12 * mm,
     )
     styles = _styles()
-    company = profile.legal_name if profile else "Skyreon"
-    scope = register.location_name or "All locations"
-    header = [_logo_flowable(36 * mm), Paragraph(f"<b>{company}</b><br/>Payroll register · {register.period_label} · {scope}", styles["Heading2"])]
+    company = escape(profile.legal_name if profile and profile.legal_name else "Skyreon")
+    scope = escape(register.location_name or "All locations")
+    header = [_logo_flowable(36 * mm), Paragraph(f"<b>{company}</b><br/>Payroll register · {escape(register.period_label)} · {scope}", styles["Heading2"])]
     story = [Table([header], colWidths=[50 * mm, 220 * mm]), Spacer(1, 8)]
     rows = [["Employee", "Code", "Type", "Hours", "Bonus", "Gross", "Tax", "Claims", "Net"]]
     for line in register.lines:
@@ -590,7 +614,7 @@ async def render_register_pdf(register: PayrollRegister, db: AsyncSession | None
         )
     )
     story.append(table)
-    doc.build(story)
+    await asyncio.to_thread(doc.build, story)
     return buffer.getvalue()
 
 
@@ -599,9 +623,10 @@ async def render_payslip_pdf(register: PayrollRegister, line: PayrollLine, db: A
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm, topMargin=14 * mm, bottomMargin=14 * mm)
     styles = _styles()
-    address = "<br/>".join(part for part in [profile.legal_name, profile.address, profile.phone, profile.website] if part)
+    addr_parts = [profile.legal_name, profile.address, profile.phone, profile.website] if profile else ["Skyreon"]
+    address = "<br/>".join(escape(part).replace("\n", "<br/>") for part in addr_parts if part)
     head = Table(
-        [[_logo_flowable(48 * mm), Paragraph(address.replace("\n", "<br/>"), styles["Normal"])]],
+        [[_logo_flowable(48 * mm), Paragraph(address, styles["Normal"])]],
         colWidths=[70 * mm, 110 * mm],
     )
     head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
@@ -707,9 +732,9 @@ async def render_payslip_pdf(register: PayrollRegister, line: PayrollLine, db: A
     )
     story.append(net)
     story.append(Spacer(1, 18))
-    signatory = profile.signatory_name or "Authorised signatory"
-    title = profile.signatory_title or ""
-    sig = _signature_flowable(profile.signature_image)
+    signatory = escape((profile.signatory_name if profile and profile.signatory_name else None) or "Authorised signatory")
+    title = escape((profile.signatory_title if profile and profile.signatory_title else None) or "")
+    sig = _signature_flowable(profile.signature_image if profile else "")
     story.append(
         Table(
             [[Paragraph("For Skyreon", styles["Normal"]), ""], [sig, ""], [Paragraph(f"<b>{signatory}</b><br/>{title}", styles["Small"]), ""]],
@@ -723,7 +748,7 @@ async def render_payslip_pdf(register: PayrollRegister, line: PayrollLine, db: A
             styles["Small"],
         )
     )
-    doc.build(story)
+    await asyncio.to_thread(doc.build, story)
     return buffer.getvalue()
 
 

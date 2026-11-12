@@ -172,7 +172,7 @@ async def list_invoices(
 async def update_invoice(db: AsyncSession, user: User, invoice_id: UUID, data: InvoiceUpdate) -> InvoiceOut:
     invoice = (
         await db.execute(
-            select(ProjectInvoice).options(selectinload(ProjectInvoice.project)).where(ProjectInvoice.id == invoice_id)
+            select(ProjectInvoice).options(selectinload(ProjectInvoice.project)).where(ProjectInvoice.id == invoice_id).with_for_update()
         )
     ).scalar_one_or_none()
     if invoice is None or invoice.project is None:
@@ -249,7 +249,7 @@ async def apply_payment(db: AsyncSession, user: User, invoice_id: UUID, data: In
         raise Forbidden("Only Admin can record payment received")
     invoice = (
         await db.execute(
-            select(ProjectInvoice).options(selectinload(ProjectInvoice.project)).where(ProjectInvoice.id == invoice_id)
+            select(ProjectInvoice).options(selectinload(ProjectInvoice.project)).where(ProjectInvoice.id == invoice_id).with_for_update()
         )
     ).scalar_one_or_none()
     if invoice is None:
@@ -325,7 +325,7 @@ async def update_payment(db: AsyncSession, user: User, payment_id: UUID, data: I
     if invoice_id:
         invoice = (
             await db.execute(
-                select(ProjectInvoice).options(selectinload(ProjectInvoice.project)).where(ProjectInvoice.id == invoice_id)
+                select(ProjectInvoice).options(selectinload(ProjectInvoice.project)).where(ProjectInvoice.id == invoice_id).with_for_update()
             )
         ).scalar_one_or_none()
         if invoice is None:

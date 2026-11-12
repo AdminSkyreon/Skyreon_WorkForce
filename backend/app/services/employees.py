@@ -11,9 +11,11 @@ from app.models.hrms import AssetStatus, CompanyAsset
 from app.core.security import hash_password
 
 from app.models.employee import Employee, EmployeeStatus, Engagement, PayType
+from app.models.location import Location
 from app.models.payroll import EmployeePayroll
 from app.models.user import User, UserRole, is_staff
 from app.schemas.employee import EmployeeCreate, EmployeeOut, EmployeeUpdate
+from app.services.auth import revoke_all_user_tokens
 
 
 def _package(employee: Employee) -> tuple[Decimal, Decimal]:
@@ -151,6 +153,8 @@ async def create_employee(db: AsyncSession, data: EmployeeCreate) -> Employee:
         raise Conflict("Employee code already in use")
     if data.reporting_manager_id:
         await get_active_employee(db, data.reporting_manager_id, "Reporting manager")
+    if data.location_id and await db.get(Location, data.location_id) is None:
+        raise NotFound("Location not found")
 
     if existing:
         user = existing
@@ -208,6 +212,9 @@ async def update_employee(db: AsyncSession, employee_id: UUID, data: EmployeeUpd
         if payload["reporting_manager_id"] == employee.id:
             raise BadRequest("Employee cannot report to themselves")
         await get_active_employee(db, payload["reporting_manager_id"], "Reporting manager")
+    if "location_id" in payload and payload["location_id"]:
+        if await db.get(Location, payload["location_id"]) is None:
+            raise NotFound("Location not found")
     if payload.get("engagement") == Engagement.STAFF:
         payload.setdefault("allow_leave", True)
         payload.setdefault("contract_monthly_fee", Decimal("0.00"))
@@ -259,6 +266,8 @@ async def _set_employee_active(db: AsyncSession, employee: Employee, active: boo
 
     employee.status = target_status
     employee.user.is_active = active
+    if not active:
+        await revoke_all_user_tokens(db, employee.user_id)
     await db.commit()
     return employee
 
@@ -277,5 +286,6 @@ async def reset_password(db: AsyncSession, employee_id: UUID, temporary_password
     employee = await get_employee(db, employee_id)
     employee.user.password_hash = hash_password(temporary_password)
     employee.user.must_change_password = True
+    await revoke_all_user_tokens(db, employee.user_id)
     await db.commit()
     return employee

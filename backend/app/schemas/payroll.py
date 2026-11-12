@@ -7,16 +7,16 @@ from app.schemas.common import ORMModel
 
 
 class PayrollDetailsIn(BaseModel):
-    currency: str = "INR"
-    basic_salary: Decimal = Field(default=Decimal("0.00"), ge=0)
-    hra: Decimal = Field(default=Decimal("0.00"), ge=0)
-    allowances: Decimal = Field(default=Decimal("0.00"), ge=0)
+    currency: str = Field(default="INR", min_length=1, max_length=8)
+    basic_salary: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
+    hra: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
+    allowances: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
     tax_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
     pf_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
-    hourly_pay_rate: Decimal = Field(default=Decimal("0.00"), ge=0)
-    professional_tax: Decimal = Field(default=Decimal("0.00"), ge=0)
-    other_deductions: Decimal = Field(default=Decimal("0.00"), ge=0)
-    bonus: Decimal = Field(default=Decimal("0.00"), ge=0)
+    hourly_pay_rate: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
+    professional_tax: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
+    other_deductions: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
+    bonus: Decimal = Field(default=Decimal("0.00"), ge=0, le=Decimal("9999999999.99"))
 
 
 class PayrollDetailsOut(ORMModel):

@@ -9,15 +9,15 @@ from app.schemas.common import ORMModel
 
 
 class ReimbursementCreate(BaseModel):
-    amount: Decimal = Field(gt=0)
-    category: str = "other"
+    amount: Decimal = Field(gt=0, le=Decimal("9999999999.99"))
+    category: str = Field(default="other", min_length=1, max_length=40)
     spend_date: date
-    note: str = ""
+    note: str = Field(default="", max_length=1000)
     project_id: UUID | None = None
 
 
 class ReimbursementReview(BaseModel):
-    comment: str = ""
+    comment: str = Field(default="", max_length=500)
 
 
 class ReimbursementOut(ORMModel):

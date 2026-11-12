@@ -7,6 +7,7 @@ from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.schemas.admin_user import AdminCreate, AdminOut
 from app.services.audit import log_audit
+from app.services.auth import revoke_all_user_tokens
 
 
 def to_out(user: User) -> AdminOut:
@@ -56,6 +57,7 @@ async def deactivate_admin(db: AsyncSession, actor: User, admin_id) -> AdminOut:
     if user is None or user.role != UserRole.ADMIN:
         raise NotFound("Admin not found")
     user.is_active = False
+    await revoke_all_user_tokens(db, user.id)
     await log_audit(db, actor, "updated", "admin", user.id, summary=f"Deactivated admin {user.email}")
     await db.commit()
     return to_out(user)

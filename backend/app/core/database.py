@@ -26,7 +26,12 @@ def create_db_engine(url: str, **extra: object) -> AsyncEngine:
     is_supabase = "supabase.co" in host or "supabase.com" in host
     is_pooler = parsed.port == 6543 or "pooler.supabase.com" in host
     connect_args: dict[str, object] = {}
-    if sslmode in {"require", "verify-ca", "verify-full"} or is_supabase:
+    if sslmode in {"verify-ca", "verify-full"}:
+        ctx = ssl.create_default_context()
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.check_hostname = sslmode == "verify-full"
+        connect_args["ssl"] = ctx
+    elif sslmode == "require" or is_supabase:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
