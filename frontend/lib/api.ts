@@ -44,7 +44,7 @@ function humanizeErrorMessage(status: number, detail: string): string {
     return "Your session has expired. Please sign in again.";
   }
   if (status === 403) {
-    return "You do not have permission to perform this action.";
+    return detail || "You do not have permission to perform this action.";
   }
   if (status === 404) {
     return "The requested information could not be found.";

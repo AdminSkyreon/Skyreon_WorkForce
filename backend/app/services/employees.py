@@ -25,21 +25,25 @@ def _package(employee: Employee) -> tuple[Decimal, Decimal]:
 
 def to_employee_out(employee: Employee) -> EmployeeOut:
     monthly_salary, hourly_pay_rate = _package(employee)
+    loaded = inspect(employee).dict
+    user = loaded.get("user")
+    reporting_manager = loaded.get("reporting_manager")
+    location = loaded.get("location")
     return EmployeeOut(
         id=employee.id,
         user_id=employee.user_id,
         name=employee.name,
         phone=employee.phone or "",
         address=employee.address or "",
-        email=employee.user.email,
-        reporting_manager_name=employee.reporting_manager.name if employee.reporting_manager else None,
+        email=user.email if user else "",
+        reporting_manager_name=reporting_manager.name if reporting_manager else None,
         employee_code=employee.employee_code,
         designation=employee.designation,
         department=employee.department,
         joining_date=employee.joining_date,
         reporting_manager_id=employee.reporting_manager_id,
         location_id=employee.location_id,
-        location_name=employee.location.name if employee.location else None,
+        location_name=location.name if location else None,
         hourly_cost_rate=employee.hourly_cost_rate,
         monthly_salary=monthly_salary,
         hourly_pay_rate=hourly_pay_rate,
@@ -48,7 +52,7 @@ def to_employee_out(employee: Employee) -> EmployeeOut:
         allow_leave=employee.allow_leave,
         contract_monthly_fee=employee.contract_monthly_fee,
         status=employee.status,
-        is_active_user=employee.user.is_active,
+        is_active_user=user.is_active if user else True,
     )
 
 

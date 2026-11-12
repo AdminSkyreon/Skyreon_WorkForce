@@ -3,12 +3,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { Badge, Button, Card, IconButton, Input, Label, Modal, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Card, FieldError, IconButton, Input, Label, Modal, Select, Textarea } from "@/components/ui";
+import { toast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { Employee, Page, Project, Task } from "@/lib/types";
 import { labels } from "@/lib/utils";
 
 const columns = ["not_started", "in_progress", "paused", "completed"] as const;
+
+function isValidNonNegative(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const num = Number(trimmed);
+  return Number.isFinite(num) && num >= 0;
+}
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -21,6 +29,7 @@ export default function ProjectDetailPage() {
   const [assignee, setAssignee] = useState("");
   const [hours, setHours] = useState("8");
   const [priority, setPriority] = useState("medium");
+  const [taskSubmitted, setTaskSubmitted] = useState(false);
   const [addMember, setAddMember] = useState("");
 
   const project = useQuery({
@@ -36,24 +45,38 @@ export default function ProjectDetailPage() {
     queryFn: () => api<Page<Employee>>("/admin/employees?status=active&page_size=100"),
   });
 
+  const taskErrors = {
+    title: !title.trim() ? "Task title is required" : title.trim().length > 255 ? "Max 255 characters" : "",
+    hours: !isValidNonNegative(hours) ? "Estimated hours must be 0 or greater" : "",
+  };
+  const hasTaskErrors = Object.values(taskErrors).some(Boolean);
+
+  function closeTaskModal() {
+    setOpen(false);
+    setEditingTask(null);
+    setTaskSubmitted(false);
+    createTask.reset();
+    saveTask.reset();
+  }
+
   const createTask = useMutation({
     mutationFn: () =>
       api(`/admin/projects/${params.id}/tasks`, {
         method: "POST",
         body: JSON.stringify({
-          title,
-          description,
+          title: title.trim(),
+          description: description.trim(),
           assignee_id: assignee || null,
-          estimated_hours: hours,
+          estimated_hours: hours.trim(),
           priority,
         }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["project-tasks", params.id] });
-      setOpen(false);
-      setEditingTask(null);
+      toast.success("Task created");
       setTitle("");
       setDescription("");
+      closeTaskModal();
     },
   });
 
@@ -68,21 +91,24 @@ export default function ProjectDetailPage() {
       api(`/admin/projects/tasks/${editingTask?.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          title,
-          description,
+          title: title.trim(),
+          description: description.trim(),
           assignee_id: assignee || null,
-          estimated_hours: hours,
+          estimated_hours: hours.trim(),
           priority,
         }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["project-tasks", params.id] });
-      setOpen(false);
-      setEditingTask(null);
+      toast.success("Task updated");
+      closeTaskModal();
     },
   });
 
   function openCreateTask() {
+    createTask.reset();
+    saveTask.reset();
+    setTaskSubmitted(false);
     setEditingTask(null);
     setTitle("");
     setDescription("");
@@ -93,6 +119,9 @@ export default function ProjectDetailPage() {
   }
 
   function openEditTask(task: Task) {
+    createTask.reset();
+    saveTask.reset();
+    setTaskSubmitted(false);
     setEditingTask(task);
     setTitle(task.title);
     setDescription(task.description || "");
@@ -105,11 +134,16 @@ export default function ProjectDetailPage() {
   const updateMembers = useMutation({
     mutationFn: (member_ids: string[]) =>
       api(`/admin/projects/${params.id}`, { method: "PATCH", body: JSON.stringify({ member_ids }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["project", params.id] }),
+    onSuccess: () => {
+      setAddMember("");
+      void qc.invalidateQueries({ queryKey: ["project", params.id] });
+      toast.success("Project team updated");
+    },
   });
 
   const p = project.data;
   const fin = p?.financials;
+  const savingTask = editingTask ? saveTask.isPending : createTask.isPending;
 
   return (
     <div className="space-y-6">
@@ -148,7 +182,9 @@ export default function ProjectDetailPage() {
           {p?.members.map((emp) => (
             <button
               key={emp.id}
-              className="rounded-full bg-forest px-3 py-1 text-sm text-white"
+              type="button"
+              disabled={updateMembers.isPending || emp.id === p.manager_id}
+              className="rounded-full bg-forest px-3 py-1 text-sm text-white disabled:opacity-70"
               onClick={() => {
                 if (!p || emp.id === p.manager_id) return;
                 updateMembers.mutate(p.members.filter((member) => member.id !== emp.id).map((member) => member.id));
@@ -162,7 +198,11 @@ export default function ProjectDetailPage() {
           {!p?.members.length ? <p className="text-sm text-ink/50">No team members yet.</p> : null}
         </div>
         <div className="mt-4 flex max-w-md flex-wrap items-center gap-2">
-          <Select value={addMember} onChange={(e) => setAddMember(e.target.value)}>
+          <Select
+            disabled={updateMembers.isPending}
+            value={addMember}
+            onChange={(e) => setAddMember(e.target.value)}
+          >
             <option value="">Add teammate</option>
             {employees.data?.items
               .filter((emp) => !p?.members.some((member) => member.id === emp.id))
@@ -174,16 +214,17 @@ export default function ProjectDetailPage() {
           </Select>
           <Button
             variant="outline"
-            disabled={!addMember}
+            disabled={!addMember || updateMembers.isPending}
+            loading={updateMembers.isPending}
             onClick={() => {
               if (!p || !addMember) return;
               updateMembers.mutate([...p.members.map((member) => member.id), addMember]);
-              setAddMember("");
             }}
           >
-            Add
+            {updateMembers.isPending ? "Adding..." : "Add"}
           </Button>
         </div>
+        {updateMembers.error ? <p className="mt-2 text-sm text-red-700">{updateMembers.error.message}</p> : null}
       </Card>
 
       <div className="flex items-center justify-between">
@@ -197,6 +238,7 @@ export default function ProjectDetailPage() {
         </div>
         <Button onClick={openCreateTask}>Add task</Button>
       </div>
+      {updateTask.error ? <p className="text-sm text-red-700">{updateTask.error.message}</p> : null}
 
       {view === "table" ? (
         <Card className="overflow-x-auto p-0">
@@ -219,7 +261,11 @@ export default function ProjectDetailPage() {
                     <td className="px-4 py-3">{task.assignee_name || "Unassigned"}</td>
                     <td className="px-4 py-3">{labels.priority[task.priority]}</td>
                     <td className="px-4 py-3">
-                      <Select value={task.status} onChange={(e) => updateTask.mutate({ id: task.id, status: e.target.value })}>
+                      <Select
+                        disabled={updateTask.isPending}
+                        value={task.status}
+                        onChange={(e) => updateTask.mutate({ id: task.id, status: e.target.value })}
+                      >
                         {Object.entries(labels.taskStatus).map(([k, v]) => (
                           <option key={k} value={k}>
                             {v}
@@ -281,30 +327,46 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      <Modal open={open} title={editingTask ? "Edit task" : "New task"} onClose={() => { setOpen(false); setEditingTask(null); }}>
+      <Modal open={open} title={editingTask ? "Edit task" : "New task"} onClose={closeTaskModal}>
         <div className="space-y-3">
           <div>
             <Label>Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input
+              maxLength={255}
+              disabled={savingTask}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            {taskSubmitted && <FieldError message={taskErrors.title} />}
           </div>
           <div>
             <Label>Assignee</Label>
-            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+            <Select disabled={savingTask} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
               <option value="">Unassigned</option>
-              {p?.members.filter((emp) => emp.status === "active" || emp.id === assignee).map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name}
-                </option>
-              ))}
+              {p?.members
+                .filter((emp) => emp.status === "active" || emp.id === assignee)
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </option>
+                ))}
             </Select>
           </div>
           <div>
             <Label>Estimated hours</Label>
-            <Input value={hours} onChange={(e) => setHours(e.target.value)} />
+            <Input
+              type="number"
+              min="0"
+              step="0.25"
+              disabled={savingTask}
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+            />
+            {taskSubmitted && <FieldError message={taskErrors.hours} />}
           </div>
           <div>
             <Label>Priority</Label>
-            <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <Select disabled={savingTask} value={priority} onChange={(e) => setPriority(e.target.value)}>
               {Object.entries(labels.priority).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
@@ -314,15 +376,29 @@ export default function ProjectDetailPage() {
           </div>
           <div>
             <Label>Description</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional details" />
+            <Textarea
+              disabled={savingTask}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional details"
+            />
           </div>
+          {(editingTask ? saveTask.error : createTask.error) ? (
+            <p className="text-sm text-red-700">{(editingTask ? saveTask.error : createTask.error)?.message}</p>
+          ) : null}
           <Button
-            loading={editingTask ? saveTask.isPending : createTask.isPending}
-            onClick={() => (editingTask ? saveTask.mutate() : createTask.mutate())}
+            loading={savingTask}
+            onClick={() => {
+              setTaskSubmitted(true);
+              if (!hasTaskErrors) {
+                if (editingTask) saveTask.mutate();
+                else createTask.mutate();
+              }
+            }}
           >
             {editingTask
-              ? saveTask.isPending ? "Saving..." : "Save changes"
-              : createTask.isPending ? "Creating..." : "Create task"}
+              ? savingTask ? "Saving..." : "Save changes"
+              : savingTask ? "Creating..." : "Create task"}
           </Button>
         </div>
       </Modal>

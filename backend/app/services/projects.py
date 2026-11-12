@@ -21,6 +21,8 @@ def _project_load_options():
         selectinload(Project.manager).selectinload(Employee.user),
         selectinload(Project.members).selectinload(ProjectMember.employee).selectinload(Employee.user),
         selectinload(Project.members).selectinload(ProjectMember.employee).selectinload(Employee.location),
+        selectinload(Project.members).selectinload(ProjectMember.employee).selectinload(Employee.reporting_manager),
+        selectinload(Project.members).selectinload(ProjectMember.employee).selectinload(Employee.payroll),
     )
 
 
@@ -53,6 +55,7 @@ async def _load_project(db: AsyncSession, project_id: UUID) -> Project:
     result = await db.execute(
         select(Project)
         .options(*_project_load_options())
+        .execution_options(populate_existing=True)
         .where(Project.id == project_id)
     )
     project = result.scalar_one_or_none()

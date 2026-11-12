@@ -181,6 +181,20 @@ export default function AssetsPage() {
             />
             {submitted && <FieldError message={errors.asset_tag} />}
           </div>
+          <div>
+            <Label>Category</Label>
+            <Select
+              disabled={isSaving}
+              value={form.category}
+              onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
+            >
+              <option value="laptop">Laptop</option>
+              <option value="phone">Phone</option>
+              <option value="monitor">Monitor</option>
+              <option value="accessory">Accessory</option>
+              <option value="other">Other</option>
+            </Select>
+          </div>
           {(editing ? update.error : create.error) ? (
             <p className="text-sm text-red-700">{(editing ? update.error : create.error)?.message}</p>
           ) : null}

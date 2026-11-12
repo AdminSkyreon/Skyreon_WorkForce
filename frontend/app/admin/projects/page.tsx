@@ -62,6 +62,7 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [memberIds, setMemberIds] = useState<string[]>([]);
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
     defaultValues: DEFAULT_VALUES,
@@ -86,6 +87,7 @@ export default function ProjectsPage() {
   function closeModal() {
     setOpen(false);
     setEditing(null);
+    setMemberIds([]);
     form.reset(DEFAULT_VALUES);
     create.reset();
     update.reset();
@@ -95,7 +97,11 @@ export default function ProjectsPage() {
     mutationFn: (values: z.infer<typeof schema>) =>
       api("/admin/projects", {
         method: "POST",
-        body: JSON.stringify({ ...values, end_date: values.end_date || null, member_ids: [values.manager_id] }),
+        body: JSON.stringify({
+          ...values,
+          end_date: values.end_date || null,
+          member_ids: [...new Set([...memberIds, values.manager_id])],
+        }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["projects"] });
@@ -107,10 +113,15 @@ export default function ProjectsPage() {
     mutationFn: (values: z.infer<typeof schema>) =>
       api(`/admin/projects/${editing?.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ ...values, end_date: values.end_date || null }),
+        body: JSON.stringify({
+          ...values,
+          end_date: values.end_date || null,
+          member_ids: [...new Set([...memberIds, values.manager_id])],
+        }),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["projects"] });
+      void qc.invalidateQueries({ queryKey: ["project"] });
       toast.success("Project updated");
       closeModal();
     },
@@ -118,6 +129,7 @@ export default function ProjectsPage() {
 
   function openCreate() {
     setEditing(null);
+    setMemberIds([]);
     create.reset();
     update.reset();
     form.reset(DEFAULT_VALUES);
@@ -126,6 +138,7 @@ export default function ProjectsPage() {
 
   function openEdit(project: Project) {
     setEditing(project);
+    setMemberIds(project.members.map((m) => m.id));
     create.reset();
     update.reset();
     form.reset({
@@ -287,6 +300,30 @@ export default function ProjectsPage() {
             <Label>Budgeted hours</Label>
             <Input type="number" min="0" step="0.01" disabled={isSaving} {...form.register("budgeted_hours")} />
             <FieldError message={errors.budgeted_hours?.message} />
+          </div>
+          <div className="md:col-span-2">
+            <Label>Team members (optional — manager is included automatically)</Label>
+            <div className="grid max-h-36 gap-2 overflow-y-auto rounded-xl border border-ink/10 p-3 sm:grid-cols-2">
+              {employees.data?.items.map((emp) => {
+                const isManager = emp.id === form.watch("manager_id");
+                const checked = isManager || memberIds.includes(emp.id);
+                return (
+                  <label key={emp.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      disabled={isSaving || isManager}
+                      checked={checked}
+                      onChange={(e) => {
+                        setMemberIds((prev) =>
+                          e.target.checked ? [...prev, emp.id] : prev.filter((id) => id !== emp.id),
+                        );
+                      }}
+                    />
+                    <span>{emp.name}{isManager ? " (manager)" : ""}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
           {saveError ? <p className="md:col-span-2 text-sm text-red-700">{saveError.message}</p> : null}
           <div className="md:col-span-2">
