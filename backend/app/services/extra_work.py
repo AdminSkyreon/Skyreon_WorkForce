@@ -134,8 +134,6 @@ async def sync_from_timesheet_week(db: AsyncSession, employee: Employee, week_st
         ).scalar_one_or_none()
         if existing and existing.status == ExtraWorkStatus.APPROVED:
             continue
-        if existing and existing.status == ExtraWorkStatus.REJECTED:
-            existing = None
         if existing is None:
             db.add(
                 ExtraWorkDay(
@@ -158,6 +156,7 @@ async def sync_from_timesheet_week(db: AsyncSession, employee: Employee, week_st
             existing.extra_pay_amount = Decimal("0.00")
             existing.payroll_year = None
             existing.payroll_month = None
+            existing.reviewer_id = None
             existing.comment = ""
     await db.flush()
     return created

@@ -217,8 +217,8 @@ async def apply_leave(db: AsyncSession, employee: Employee, data: LeaveCreate) -
     if not getattr(employee, "allow_leave", True):
         raise BadRequest("This contractor does not have staff leave")
 
-    if data.start_date < date.today():
-        raise BadRequest("Cannot apply leave for a past date")
+    if data.start_date < date.today() - timedelta(days=7):
+        raise BadRequest("Cannot apply leave more than 7 days in the past")
     
     leave_type = await db.get(LeaveType, data.leave_type_id)
     if leave_type is None:

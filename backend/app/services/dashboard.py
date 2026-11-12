@@ -1,4 +1,3 @@
-import asyncio
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -30,69 +29,60 @@ async def admin_dashboard(db: AsyncSession) -> AdminDashboard:
     today = date.today()
     prev = date(today.year, today.month, 1) - timedelta(days=1)
 
-    emp_count_task = db.execute(
-        select(func.count()).select_from(Employee).where(Employee.status == EmployeeStatus.ACTIVE)
-    )
-    proj_count_task = db.execute(
-        select(func.count()).select_from(Project).where(Project.status == ProjectStatus.ACTIVE)
-    )
-    sheet_count_task = db.execute(
-        select(func.count())
-        .select_from(TimesheetWeek)
-        .where(TimesheetWeek.status == TimesheetStatus.SUBMITTED)
-    )
-    leave_count_task = db.execute(
-        select(func.count()).select_from(LeaveRequest).where(LeaveRequest.status == LeaveStatus.PENDING)
-    )
-    claim_count_task = db.execute(
-        select(func.count())
-        .select_from(Reimbursement)
-        .where(Reimbursement.status == ReimbursementStatus.SUBMITTED)
-    )
-    missing_task = missing_projects(db, prev.year, prev.month)
+    active_employees = (
+        await db.execute(
+            select(func.count()).select_from(Employee).where(Employee.status == EmployeeStatus.ACTIVE)
+        )
+    ).scalar_one()
+    active_projects = (
+        await db.execute(
+            select(func.count()).select_from(Project).where(Project.status == ProjectStatus.ACTIVE)
+        )
+    ).scalar_one()
+    pending_timesheets = (
+        await db.execute(
+            select(func.count())
+            .select_from(TimesheetWeek)
+            .where(TimesheetWeek.status == TimesheetStatus.SUBMITTED)
+        )
+    ).scalar_one()
+    pending_leaves = (
+        await db.execute(
+            select(func.count()).select_from(LeaveRequest).where(LeaveRequest.status == LeaveStatus.PENDING)
+        )
+    ).scalar_one()
+    pending_claims = (
+        await db.execute(
+            select(func.count())
+            .select_from(Reimbursement)
+            .where(Reimbursement.status == ReimbursementStatus.SUBMITTED)
+        )
+    ).scalar_one()
+    missing = await missing_projects(db, prev.year, prev.month)
 
-    projects_task = db.execute(
-        select(Project)
-        .where(Project.status.in_([ProjectStatus.ACTIVE, ProjectStatus.PLANNED]))
-    )
-    hour_rows_task = db.execute(
-        select(
-            TaskTimeEntry.employee_id,
-            func.coalesce(func.sum(TaskTimeEntry.duration_seconds), 0),
+    projects = list(
+        (
+            await db.execute(
+                select(Project).where(Project.status.in_([ProjectStatus.ACTIVE, ProjectStatus.PLANNED]))
+            )
         )
-        .where(
-            TaskTimeEntry.end_time.is_not(None),
-            TaskTimeEntry.start_time >= start_dt,
-            TaskTimeEntry.start_time < end_dt,
+        .scalars()
+        .all()
+    )
+    hour_rows = (
+        await db.execute(
+            select(
+                TaskTimeEntry.employee_id,
+                func.coalesce(func.sum(TaskTimeEntry.duration_seconds), 0),
+            )
+            .where(
+                TaskTimeEntry.end_time.is_not(None),
+                TaskTimeEntry.start_time >= start_dt,
+                TaskTimeEntry.start_time < end_dt,
+            )
+            .group_by(TaskTimeEntry.employee_id)
         )
-        .group_by(TaskTimeEntry.employee_id)
-    )
-    (
-        emp_res,
-        proj_res,
-        sheet_res,
-        leave_res,
-        claim_res,
-        missing,
-        projects_res,
-        hour_rows_res,
-    ) = await asyncio.gather(
-        emp_count_task,
-        proj_count_task,
-        sheet_count_task,
-        leave_count_task,
-        claim_count_task,
-        missing_task,
-        projects_task,
-        hour_rows_task,
-    )
-    active_employees = emp_res.scalar_one()
-    active_projects = proj_res.scalar_one()
-    pending_timesheets = sheet_res.scalar_one()
-    pending_leaves = leave_res.scalar_one()
-    pending_claims = claim_res.scalar_one()
-    projects = list(projects_res.scalars().all())
-    hour_rows = hour_rows_res.all()
+    ).all()
 
     hours = Decimal("0.00")
     cost = Decimal("0.00")

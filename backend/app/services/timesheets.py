@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequest, Forbidden, NotFound
 from app.models.employee import Employee, EmployeeStatus
-from app.models.project import Project
+from app.models.project import Project, ProjectMember
 from app.models.task import Task
 from app.models.time_entry import TaskTimeEntry, TimeEntrySource
 from app.models.timesheet import TimesheetStatus, TimesheetWeek
@@ -53,10 +53,14 @@ async def _ensure_week(db: AsyncSession, employee_id: UUID, week_start: date) ->
     return week
 
 
-def _can_review(user: User, project_ids: set[UUID], manager_ids: set[UUID]) -> bool:
+def _can_review(
+    user: User, project_ids: set[UUID], manager_ids: set[UUID], reporting_manager_id: UUID | None = None
+) -> bool:
     if is_staff(user):
         return True
-    if user.employee and user.employee.id in manager_ids:
+    if user.employee and (
+        user.employee.id in manager_ids or user.employee.id == reporting_manager_id
+    ):
         return True
     return False
 
@@ -346,9 +350,20 @@ async def list_period(
         emp_stmt = emp_stmt.where(Employee.department == department)
     if location_id:
         emp_stmt = emp_stmt.where(Employee.location_id == location_id)
-    if not is_staff(user) and user.employee:
+    if not is_staff(user):
+        if user.employee is None:
+            return []
+        managed_member_ids = (
+            select(ProjectMember.employee_id)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .where(Project.manager_id == user.employee.id)
+        )
         emp_stmt = emp_stmt.where(
-            or_(Employee.id == user.employee.id, Employee.reporting_manager_id == user.employee.id)
+            or_(
+                Employee.id == user.employee.id,
+                Employee.reporting_manager_id == user.employee.id,
+                Employee.id.in_(managed_member_ids),
+            )
         )
     people = list((await db.execute(emp_stmt)).scalars().all())
     outs: list[TimesheetOut] = []
@@ -419,7 +434,7 @@ async def review_week(
         )
     if user.employee and user.employee.id == week.employee_id:
         raise Forbidden("You cannot approve your own timesheet")
-    if not _can_review(user, project_ids, managers):
+    if not _can_review(user, project_ids, managers, employee.reporting_manager_id):
         raise Forbidden("You cannot review this timesheet")
     week.status = status
     week.comment = comment

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { useState } from "react";
 import { Badge, Button, Card, FieldError, Input, Label, Select, Textarea } from "@/components/ui";
 import { toast } from "@/components/toast";
@@ -22,14 +22,14 @@ export default function EmployeeLeavePage() {
   const balances = useQuery({ queryKey: ["my-balances"], queryFn: () => api<LeaveBalance[]>("/me/leave/balances") });
   const types = useQuery({ queryKey: ["leave-types"], queryFn: () => api<LeaveType[]>("/leave-types") });
 
-  const today = format(new Date(), "yyyy-MM-dd");
+  const minDate = format(subDays(new Date(), 7), "yyyy-MM-dd");
   const effectiveEnd = half ? start : end || start;
   const errors = {
     leaveType: !leaveType ? "Select a leave type" : "",
     start: !start
       ? "Start date is required"
-      : start < today
-        ? "Cannot apply leave for a past date"
+      : start < minDate
+        ? "Cannot apply leave more than 7 days in the past"
         : "",
     end:
       start && effectiveEnd && effectiveEnd < start
@@ -145,7 +145,7 @@ export default function EmployeeLeavePage() {
               <Label>Start</Label>
               <Input
                 type="date"
-                min={today}
+                min={minDate}
                 disabled={apply.isPending}
                 value={start}
                 onChange={(e) => {
@@ -162,7 +162,7 @@ export default function EmployeeLeavePage() {
               <Label>End</Label>
               <Input
                 type="date"
-                min={start || today}
+                min={start || minDate}
                 disabled={apply.isPending || half}
                 value={half ? start : end}
                 onChange={(e) => setEnd(e.target.value)}
