@@ -1,3 +1,4 @@
+import logging
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
@@ -30,6 +31,7 @@ from app.services.dates import is_weekend, monday_of, week_days
 from app.services.holidays import holiday_dates
 from app.services.payroll import STANDARD_DAY_HOURS, _working_days_in_month, is_closed
 
+logger = logging.getLogger(__name__)
 UTC = ZoneInfo("UTC")
 HOLIDAY_MULTIPLIER = Decimal("2.00")
 
@@ -306,6 +308,7 @@ async def approve(
         summary=f"{data.settlement.value} for {row.work_date}",
     )
     await db.commit()
+    logger.info("Approved extra_work id=%s settlement=%s by user_id=%s", row_id, data.settlement.value, user.id)
     return to_out(await _load(db, row_id))
 
 
@@ -321,4 +324,5 @@ async def reject(db: AsyncSession, user: User, row_id: UUID, comment: str) -> Ex
     row.comment = comment
     row.reviewer_id = user.employee.id if user.employee else None
     await db.commit()
+    logger.info("Rejected extra_work id=%s by user_id=%s", row_id, user.id)
     return to_out(await _load(db, row_id))

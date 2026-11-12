@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -7,7 +9,9 @@ from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.schemas.admin_user import AdminCreate, AdminOut
 from app.services.audit import log_audit
-from app.services.auth import revoke_all_user_tokens
+from app.services.auth import revoke_user_refresh_tokens
+
+logger = logging.getLogger(__name__)
 
 
 def to_out(user: User) -> AdminOut:
@@ -57,7 +61,8 @@ async def deactivate_admin(db: AsyncSession, actor: User, admin_id) -> AdminOut:
     if user is None or user.role != UserRole.ADMIN:
         raise NotFound("Admin not found")
     user.is_active = False
-    await revoke_all_user_tokens(db, user.id)
+    await revoke_user_refresh_tokens(db, user.id)
     await log_audit(db, actor, "updated", "admin", user.id, summary=f"Deactivated admin {user.email}")
     await db.commit()
+    logger.info("Deactivated admin id=%s by actor_id=%s", user.id, actor.id)
     return to_out(user)

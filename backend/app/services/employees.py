@@ -1,3 +1,4 @@
+import logging
 import re
 from decimal import Decimal
 from uuid import UUID
@@ -15,7 +16,9 @@ from app.models.location import Location
 from app.models.payroll import EmployeePayroll
 from app.models.user import User, UserRole, is_staff
 from app.schemas.employee import EmployeeCreate, EmployeeOut, EmployeeUpdate
-from app.services.auth import revoke_all_user_tokens
+from app.services.auth import revoke_user_refresh_tokens
+
+logger = logging.getLogger(__name__)
 
 
 def _package(employee: Employee) -> tuple[Decimal, Decimal]:
@@ -200,6 +203,7 @@ async def create_employee(db: AsyncSession, data: EmployeeCreate) -> Employee:
         )
     )
     await db.commit()
+    logger.info("Created employee id=%s code=%s", employee.id, employee.employee_code)
     return await get_employee(db, employee.id)
 
 
@@ -238,6 +242,7 @@ async def update_employee(db: AsyncSession, employee_id: UUID, data: EmployeeUpd
             payroll.hourly_pay_rate = Decimal("0.00")
             employee.hourly_cost_rate = Decimal("0.00")
     await db.commit()
+    logger.info("Created employee id=%s code=%s", employee.id, employee.employee_code)
     return await get_employee(db, employee.id)
 
 
@@ -267,8 +272,9 @@ async def _set_employee_active(db: AsyncSession, employee: Employee, active: boo
     employee.status = target_status
     employee.user.is_active = active
     if not active:
-        await revoke_all_user_tokens(db, employee.user_id)
+        await revoke_user_refresh_tokens(db, employee.user_id)
     await db.commit()
+    logger.info("Set employee id=%s active=%s", employee.id, active)
     return employee
 
 
@@ -286,6 +292,7 @@ async def reset_password(db: AsyncSession, employee_id: UUID, temporary_password
     employee = await get_employee(db, employee_id)
     employee.user.password_hash = hash_password(temporary_password)
     employee.user.must_change_password = True
-    await revoke_all_user_tokens(db, employee.user_id)
+    await revoke_user_refresh_tokens(db, employee.user_id)
     await db.commit()
+    logger.info("Reset password for employee id=%s", employee.id)
     return employee

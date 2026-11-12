@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from calendar import monthrange
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
@@ -34,6 +35,7 @@ from app.services.dates import monday_of
 from app.services.leave import working_days
 from app.services.reimbursements import approved_for_month
 
+logger = logging.getLogger(__name__)
 UTC_TZ = ZoneInfo("UTC")
 NAVY = colors.HexColor("#081020")
 BLUE = colors.HexColor("#0060A8")
@@ -456,6 +458,7 @@ async def close_month(db: AsyncSession, user: User, year: int, month: int) -> Pa
     register.closed = True
     await log_audit(db, user, "closed", "payroll_period", f"{year}-{month:02d}", summary=f"Closed payroll {register.period_label}")
     await db.commit()
+    logger.info("Closed payroll period %04d-%02d by user_id=%s", year, month, user.id)
     return register
 
 
@@ -470,6 +473,7 @@ async def reopen_month(db: AsyncSession, user: User, year: int, month: int) -> P
     period.closed_at = None
     await log_audit(db, user, "reopened", "payroll_period", f"{year}-{month:02d}", summary=f"Re-opened payroll {year}-{month:02d}")
     await db.commit()
+    logger.info("Re-opened payroll period %04d-%02d by user_id=%s", year, month, user.id)
     return await _compute_register(db, year, month)
 
 
@@ -524,7 +528,7 @@ def _amount_words(amount: Decimal, currency: str) -> str:
             return two(n)
         return f"{ones[n // 100]} Hundred {two(n % 100)}".strip()
 
-    def indian_words(n: int) -> str:
+    def _number_to_indian_words(n: int) -> str:
         if n == 0:
             return "Zero"
         crore, rem = divmod(n, 10000000)
@@ -532,7 +536,7 @@ def _amount_words(amount: Decimal, currency: str) -> str:
         thousand, rem = divmod(rem, 1000)
         parts = []
         if crore:
-            crore_text = indian_words(crore) if crore >= 1000 else three(crore)
+            crore_text = _number_to_indian_words(crore) if crore >= 1000 else three(crore)
             parts.append(f"{crore_text} Crore")
         if lakh:
             parts.append(f"{three(lakh)} Lakh")
@@ -545,7 +549,7 @@ def _amount_words(amount: Decimal, currency: str) -> str:
     negative = amount < 0
     abs_amount = abs(amount)
     whole = int(abs_amount)
-    words = indian_words(whole)
+    words = _number_to_indian_words(whole)
     paise = min(99, max(0, int(((abs_amount - Decimal(whole)) * 100).quantize(Decimal("1")))))
     suffix = f" and {two(paise)} Paise" if paise else ""
     prefix = "Minus " if negative else ""

@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import logging
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -17,6 +18,9 @@ from app.core.security import (
 from app.models.user import RefreshToken, User
 from app.schemas.auth import TokenUser
 from app.services.hats import user_hats
+
+logger = logging.getLogger(__name__)
+REFRESH_REUSE_GRACE_SECONDS = 5
 
 
 async def to_token_user(db: AsyncSession, user: User) -> TokenUser:
@@ -41,7 +45,9 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User:
     )
     user = result.scalar_one_or_none()
     if user is None or not user.is_active or not verify_password(password, user.password_hash):
+        logger.warning("Failed login attempt for email=%s", email.lower())
         raise Unauthorized("Invalid email or password")
+    logger.info("Authenticated user_id=%s role=%s", user.id, user.role.value)
     return user
 
 
@@ -58,12 +64,13 @@ async def issue_tokens(db: AsyncSession, user: User) -> tuple[str, str]:
     return access, raw
 
 
-async def revoke_all_user_tokens(db: AsyncSession, user_id: UUID) -> None:
+async def revoke_user_refresh_tokens(db: AsyncSession, user_id: UUID) -> None:
     await db.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=datetime.now(UTC))
     )
+    logger.info("Revoked all active refresh tokens for user_id=%s", user_id)
 
 
 async def rotate_refresh(db: AsyncSession, raw_token: str) -> tuple[str, str, User]:
@@ -76,16 +83,22 @@ async def rotate_refresh(db: AsyncSession, raw_token: str) -> tuple[str, str, Us
     )
     matched = result.scalar_one_or_none()
     if matched is None:
-        raise Unauthorized("Invalid refresh token")
-    if matched.revoked_at is not None:
-        # Refresh token reuse detected: revoke all active sessions for this user
-        await revoke_all_user_tokens(db, matched.user_id)
-        await db.commit()
+        logger.warning("Refresh failed: unknown token")
         raise Unauthorized("Invalid refresh token")
     now = datetime.now(UTC)
+    if matched.revoked_at is not None:
+        age = (now - matched.revoked_at).total_seconds()
+        if age > REFRESH_REUSE_GRACE_SECONDS:
+            logger.warning("Refresh token reuse detected for user_id=%s; revoking active sessions", matched.user_id)
+            await revoke_user_refresh_tokens(db, matched.user_id)
+            await db.commit()
+        else:
+            logger.info("Concurrent refresh within grace window for user_id=%s", matched.user_id)
+        raise Unauthorized("Invalid refresh token")
     if matched.expires_at < now:
         matched.revoked_at = now
         await db.commit()
+        logger.info("Refresh token expired for user_id=%s", matched.user_id)
         raise Unauthorized("Refresh token expired")
 
     matched.revoked_at = now
@@ -127,11 +140,13 @@ async def change_password(
 ) -> None:
     if not user.must_change_password:
         if not current_password or not verify_password(current_password, user.password_hash):
+            logger.warning("Failed password change attempt for user_id=%s", user.id)
             raise BadRequest("Current password is incorrect")
     user.password_hash = hash_password(new_password)
     user.must_change_password = False
-    await revoke_all_user_tokens(db, user.id)
+    await revoke_user_refresh_tokens(db, user.id)
     await db.commit()
+    logger.info("Password changed for user_id=%s", user.id)
 
 
 async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:

@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,6 +14,7 @@ from app.services.billing import missing_projects
 from app.services.dates import monday_of
 from app.services.notifications import notify, notify_admins
 
+logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 
@@ -149,8 +151,10 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     scheduler.start()
+    logger.info("Background scheduler started")
 
 
 def stop_scheduler() -> None:
     if scheduler.running:
         scheduler.shutdown(wait=False)
+        logger.info("Background scheduler stopped")

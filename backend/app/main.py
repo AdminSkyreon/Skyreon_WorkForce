@@ -17,10 +17,12 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    settings.validate_production_security()
+    settings.validate_security_settings()
+    logger.info("Starting %s", settings.app_name)
     start_scheduler()
     yield
     stop_scheduler()
+    logger.info("Stopped %s", settings.app_name)
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
